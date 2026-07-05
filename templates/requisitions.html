@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block title %}Заявки — BAAZ TMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Рабочее место кладовщика</h1>
+  {% if is_clerk %}
+  <span class="hint">Заявки и инструменты вашего склада</span>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="tabs">
+    <button type="button" class="tab-btn active" data-tab="cmms">Входящие от CMMS ({{ cmms_requisitions|length }})</button>
+    <button type="button" class="tab-btn" data-tab="internal">Внутренние выдачи ({{ internal_requisitions|length }})</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-cmms">
+    {% if cmms_requisitions %}
+      {% for req in cmms_requisitions %}
+      {% include "partials/requisition_card.html" %}
+      {% endfor %}
+    {% else %}
+    <div class="empty-state">Нет входящих заявок от CMMS</div>
+    {% endif %}
+  </div>
+
+  <div class="tab-panel" id="tab-internal">
+    {% if internal_requisitions %}
+      {% for req in internal_requisitions %}
+      {% include "partials/requisition_card.html" %}
+      {% endfor %}
+    {% else %}
+    <div class="empty-state">Нет внутренних заявок</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal-overlay" id="pick-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Подобрать инструмент</h3>
+      <button type="button" class="modal-close" data-close-pick>&times;</button>
+    </div>
+    <form id="pick-form">
+      <div class="modal-body">
+        <input type="hidden" id="pick-line-id">
+        <input type="hidden" id="pick-warehouse-id">
+        <input type="hidden" id="pick-catalog-id">
+        <p class="hint" id="pick-hint"></p>
+        <div class="form-group">
+          <label for="pick-tool">Доступный экземпляр на складе</label>
+          <select id="pick-tool" required></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-pick>Отмена</button>
+        <button type="submit" class="btn btn-primary">Зарезервировать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="return-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Принять возврат</h3>
+      <button type="button" class="modal-close" data-close-return>&times;</button>
+    </div>
+    <form id="return-form">
+      <div class="modal-body">
+        <input type="hidden" id="return-line-id">
+        <div class="form-group">
+          <label for="return-result-status">Результат приёмки</label>
+          <select id="return-result-status" required>
+            <option value="available">Исправен</option>
+            <option value="maintenance">Требует обслуживания/заточки</option>
+            <option value="scrapped">Списан (брак/поломка)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="return-condition">Комментарий</label>
+          <textarea id="return-condition" rows="3" placeholder="Необязательно: опишите состояние инструмента"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-return>Отмена</button>
+        <button type="submit" class="btn btn-success">Оформить возврат</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const availableTools = {{ available_tools | tojson | safe }};
+const CAN_MANAGE_REQUISITIONS = {{ (is_clerk or is_admin) | tojson | safe }};
+const apiOpts = { credentials: "include", headers: { "Content-Type": "application/json" } };
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+const pickModal = document.getElementById("pick-modal");
+const returnModal = document.getElementById("return-modal");
+
+function closePick() {
+  if (pickModal) pickModal.classList.remove("open");
+}
+
+function closeReturn() {
+  if (returnModal) returnModal.classList.remove("open");
+}
+
+function initRequisitionActions() {
+  if (!CAN_MANAGE_REQUISITIONS) return;
+
+  document.querySelectorAll("[data-close-pick]").forEach(el => el.addEventListener("click", closePick));
+  document.querySelectorAll("[data-close-return]").forEach(el => el.addEventListener("click", closeReturn));
+
+  document.querySelectorAll(".btn-pick").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const warehouseId = btn.dataset.warehouseId;
+      const catalogId = btn.dataset.catalogId || "";
+      document.getElementById("pick-line-id").value = btn.dataset.lineId;
+      document.getElementById("pick-warehouse-id").value = warehouseId;
+      document.getElementById("pick-catalog-id").value = catalogId;
+      document.getElementById("pick-hint").textContent = btn.dataset.hint || "";
+
+      const select = document.getElementById("pick-tool");
+      select.innerHTML = "";
+      const filtered = availableTools.filter(t =>
+        String(t.warehouse_id) === String(warehouseId) && (!catalogId || String(t.type_id) === String(catalogId))
+      );
+      if (!filtered.length) {
+        select.innerHTML = "<option value=\"\">Нет доступных инструментов</option>";
+      } else {
+        filtered.forEach(t => {
+          const opt = document.createElement("option");
+          opt.value = t.id;
+          const tt = t.tms_tool_types || {};
+          opt.textContent = (t.inventory_number || "—") + " / " + (t.serial_number || "—") + " — " + (tt.model_name || "");
+          select.appendChild(opt);
+        });
+      }
+      pickModal.classList.add("open");
+    });
+  });
+
+  document.getElementById("pick-form")?.addEventListener("submit", async e => {
+    e.preventDefault();
+    const lineId = document.getElementById("pick-line-id").value;
+    const toolId = document.getElementById("pick-tool").value;
+    if (!toolId) {
+      alert("Выберите инструмент");
+      return;
+    }
+    const resp = await fetch("/api/v1/requisitions/lines/" + lineId + "/reserve", {
+      ...apiOpts,
+      method: "POST",
+      body: JSON.stringify({ tool_id: toolId }),
+    });
+    if (resp.ok) location.reload();
+    else {
+      const err = await resp.json().catch(() => ({}));
+      alert(err.detail || "Ошибка резерва");
+    }
+  });
+
+  document.querySelectorAll(".btn-issue").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Выдать весь комплект по заявке?")) return;
+      const resp = await fetch("/api/v1/requisitions/" + btn.dataset.reqId + "/issue", { ...apiOpts, method: "POST" });
+      if (resp.ok) location.reload();
+      else {
+        const err = await resp.json().catch(() => ({}));
+        alert(err.detail || "Ошибка выдачи");
+      }
+    });
+  });
+
+  document.querySelectorAll(".btn-return").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById("return-line-id").value = btn.dataset.lineId;
+      document.getElementById("return-result-status").value = "available";
+      document.getElementById("return-condition").value = "";
+      returnModal.classList.add("open");
+    });
+  });
+
+  document.getElementById("return-form")?.addEventListener("submit", async e => {
+    e.preventDefault();
+    const lineId = document.getElementById("return-line-id").value;
+    const comment = document.getElementById("return-condition").value.trim();
+    const resp = await fetch("/api/v1/requisitions/lines/" + lineId + "/return", {
+      ...apiOpts,
+      method: "POST",
+      body: JSON.stringify({
+        result_status: document.getElementById("return-result-status").value,
+        condition_on_return: comment || null,
+      }),
+    });
+    if (resp.ok) location.reload();
+    else {
+      const err = await resp.json().catch(() => ({}));
+      alert(err.detail || "Ошибка возврата");
+    }
+  });
+}
+
+initRequisitionActions();
+</script>
+{% endblock %}
+

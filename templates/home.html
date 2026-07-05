@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Главная — BAAZ TMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Добро пожаловать, {{ user.employee_full_name or user.login }}</h1>
+  <div class="page-header-actions">
+    <a href="{{ work_url }}" class="btn btn-primary">К работе</a>
+  </div>
+</div>
+
+{% if is_admin and dashboard %}
+<div class="card dashboard-section">
+  <h2 class="dashboard-section-title">Администрирование системы</h2>
+  <div class="stat-grid">
+    <div class="stat-widget">
+      <div class="stat-value">{{ dashboard.users_count }}</div>
+      <div class="stat-label">Пользователей</div>
+    </div>
+    <div class="stat-widget">
+      <div class="stat-value">{{ dashboard.warehouses_count }}</div>
+      <div class="stat-label">Складов</div>
+    </div>
+  </div>
+  <h3 class="dashboard-subtitle">Последние действия</h3>
+  {% if dashboard.activity_log %}
+  <table class="activity-table">
+    <thead><tr><th>Время</th><th>Событие</th></tr></thead>
+    <tbody>
+      {% for item in dashboard.activity_log %}
+      <tr><td>{{ item.time }}</td><td>{{ item.text }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">Нет недавних событий</p>
+  {% endif %}
+  <div class="dashboard-grid" style="margin-top:1.25rem;">
+    <a href="/admin/users" class="dashboard-link"><div class="dashboard-card"><div class="dashboard-card-title">Пользователи</div></div></a>
+    <a href="/admin/structure" class="dashboard-link"><div class="dashboard-card"><div class="dashboard-card-title">Цеха и склады</div></div></a>
+    <a href="/inventory" class="dashboard-link"><div class="dashboard-card"><div class="dashboard-card-title">Инвентарь</div></div></a>
+  </div>
+</div>
+
+{% elif is_clerk and dashboard %}
+<div class="card dashboard-section">
+  <h2 class="dashboard-section-title">Рабочее место кладовщика</h2>
+  <div class="stat-grid">
+    <div class="stat-widget">
+      <div class="stat-value">{{ dashboard.issued_today }}</div>
+      <div class="stat-label">Выдано сегодня</div>
+    </div>
+    <div class="stat-widget">
+      <div class="stat-value">{{ dashboard.awaiting_return }}</div>
+      <div class="stat-label">Ожидает возврата</div>
+    </div>
+    <div class="stat-widget">
+      <div class="stat-value">{{ dashboard.cmms_pending }}</div>
+      <div class="stat-label">Заявки от CMMS</div>
+    </div>
+  </div>
+  <div class="dashboard-grid" style="margin-top:1.25rem;">
+    <a href="/inventory" class="dashboard-link"><div class="dashboard-card"><div class="dashboard-card-title">Инвентарь</div></div></a>
+    <a href="/requisitions" class="dashboard-link"><div class="dashboard-card"><div class="dashboard-card-title">Заявки</div></div></a>
+  </div>
+</div>
+
+{% elif is_master %}
+<div class="card dashboard-section">
+  <h2 class="dashboard-section-title">Производство и аналитика</h2>
+  <p class="hint" style="margin-bottom:1rem;">Управление каталогом, структурой складов и отчётностью инструментального хозяйства.</p>
+  <div class="dashboard-grid">
+    <a href="/master/catalog" class="dashboard-link">
+      <div class="dashboard-card">
+        <div class="dashboard-card-title">Справочник инструментов</div>
+        <div class="dashboard-card-desc">Типы и категории, минимальные остатки</div>
+      </div>
+    </a>
+    <a href="/master/structure" class="dashboard-link">
+      <div class="dashboard-card">
+        <div class="dashboard-card-title">Структура</div>
+        <div class="dashboard-card-desc">Цеха, участки и склады</div>
+      </div>
+    </a>
+    <a href="/analytics" class="dashboard-link">
+      <div class="dashboard-card">
+        <div class="dashboard-card-title">Аналитика</div>
+        <div class="dashboard-card-desc">Отчёты, статистика, экспорт Excel и Word</div>
+      </div>
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

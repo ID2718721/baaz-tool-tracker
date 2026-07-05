@@ -1,0 +1,464 @@
+{% extends "base.html" %}
+
+{% block title %}Инвентарь — BAAZ TMS{% endblock %}
+
+{% block content %}
+{% set status_labels = {
+  "available": "Доступен",
+  "in_use": "В работе",
+  "maintenance": "На обслуживании",
+  "scrapped": "Списан"
+} %}
+<div class="page-header">
+  <h1>Инвентарь{% if read_only %} <span class="hint">(только просмотр)</span>{% endif %}</h1>
+  <div class="page-header-actions">
+    {% if can_add_tools %}
+    <button type="button" class="btn btn-primary" id="btn-add-tool" onclick="openEditToolModal(null)">+ Добавить инструмент</button>
+    {% endif %}
+    {% if is_clerk and warehouses|length == 1 %}
+    <a class="btn btn-secondary" href="/api/v1/reports/export/inventory/{{ warehouses[0].id }}">Excel: остатки</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <form class="filters" method="get" action="/inventory">
+    <label>Склад
+      <select name="warehouse_id" {% if is_clerk and user.warehouse_id %}disabled{% endif %}>
+        <option value="">Все склады</option>
+        {% for wh in warehouses %}
+        <option value="{{ wh.id }}" {% if selected_warehouse == wh.id|string or (is_clerk and user.warehouse_id and user.warehouse_id|string == wh.id|string) %}selected{% endif %}>{{ wh.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Статус
+      <select name="status">
+        <option value="">Все статусы</option>
+        <option value="available" {% if selected_status == 'available' %}selected{% endif %}>Доступен</option>
+        <option value="in_use" {% if selected_status == 'in_use' %}selected{% endif %}>В работе</option>
+        <option value="maintenance" {% if selected_status == 'maintenance' %}selected{% endif %}>На обслуживании</option>
+        <option value="scrapped" {% if selected_status == 'scrapped' %}selected{% endif %}>Списан</option>
+      </select>
+    </label>
+    <button type="submit" class="btn btn-secondary">Применить</button>
+    <a href="/inventory" class="btn btn-secondary">Сбросить</a>
+  </form>
+
+  {% if tools %}
+  {% set has_scrapped = tools|selectattr('status', 'equalto', 'scrapped')|list|length > 0 %}
+  <table>
+    <thead>
+      <tr>
+        <th>Инв. номер</th>
+        <th>Серийный номер</th>
+        <th>Тип</th>
+        <th>Категория</th>
+        <th>Склад</th>
+        <th>Статус</th>
+        <th>Износ</th>
+        <th>Поверка</th>
+        {% if can_edit_tools or is_clerk or has_scrapped %}<th>Действия</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody id="tools-body">
+      {% for tool in tools %}
+      {% set tool_type = tool.get("tms_tool_types") or {} %}
+      {% set category = tool_type.get("tms_tool_categories") or {} %}
+      {% set warehouse = tool.get("tms_warehouses") or {} %}
+      <tr id="row-{{ tool.id }}"
+          data-tool='{{ {"id": tool.id|string, "type_id": tool.type_id|string, "warehouse_id": tool.warehouse_id|string, "inventory_number": tool.inventory_number or "", "serial_number": tool.serial_number or "", "status": tool.status, "wear_count": tool.wear_count}|tojson }}'>
+        <td>{{ tool.inventory_number or "—" }}</td>
+        <td>{{ tool.serial_number or "—" }}</td>
+        <td>{{ tool_type.model_name or "—" }}</td>
+        <td>{{ category.name or "—" }}</td>
+        <td>{{ warehouse.name or "—" }}</td>
+        <td class="tool-status-cell"><span class="status status-{{ tool.status }}">{{ status_labels.get(tool.status, tool.status) }}</span></td>
+        <td class="tool-wear-cell">{{ tool.wear_count }}</td>
+        <td>{{ tool.last_check or "—" }}</td>
+        {% if can_edit_tools or is_clerk or tool.status == 'scrapped' %}
+        <td class="tool-actions-cell">
+          {% if is_clerk and tool.status == 'available' %}
+          <button type="button" class="btn btn-info btn-sm" onclick="openIssueModal('{{ tool.id }}')">Выдать</button>
+          {% elif is_clerk and tool.status == 'in_use' %}
+          <button type="button" class="btn btn-success btn-sm" onclick="openReturnModal('{{ tool.id }}')">Принять возврат</button>
+          {% endif %}
+          {% if tool.status == 'scrapped' %}
+          <a class="btn btn-info btn-sm" href="/api/v1/reports/export/word/write-off/{{ tool.id }}">Word: Акт</a>
+          {% endif %}
+          {% if can_edit_tools %}
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openEditToolModal('{{ tool.id }}')">Изменить</button>
+          {% if can_delete_tools %}
+          <button type="button" class="btn btn-danger btn-sm btn-delete-tool"
+                  data-tool-id="{{ tool.id }}"
+                  data-tool-name="{{ tool.inventory_number or tool.serial_number or tool.id }}">Удалить</button>
+          {% endif %}
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">Инструменты не найдены</div>
+  {% endif %}
+</div>
+
+<!-- Модалка выдачи (кладовщик) -->
+<div class="modal-overlay" id="issueModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Выдача инструмента</h3>
+      <button type="button" class="modal-close" onclick="closeIssueModal()">&times;</button>
+    </div>
+    <form id="issue-form" onsubmit="submitIssue(event)">
+      <div class="modal-body">
+        <input type="hidden" id="issue-tool-id">
+        <p class="hint" id="issue-tool-label" style="margin-bottom:1rem;"></p>
+        <div class="form-group">
+          <label for="issue-employee">Сотрудник</label>
+          <select id="issue-employee" required onchange="syncIssueLocation()">
+            <option value="" disabled selected>Выберите сотрудника</option>
+            {% for e in employees %}
+            {% set loc = e.get("tms_locations") or {} %}
+            <option value="{{ e.id }}" data-location-name="{{ loc.name or '—' }}">
+              {{ e.full_name }} ({{ e.badge_number }})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="issue-location">Цех / участок (куда выдаётся)</label>
+          <input type="text" id="issue-location" readonly placeholder="Выберите сотрудника">
+        </div>
+        <div class="form-group">
+          <label for="issue-notes">Примечание</label>
+          <textarea id="issue-notes" rows="2" placeholder="Необязательно"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeIssueModal()">Отмена</button>
+        <button type="submit" class="btn btn-info">Подтвердить выдачу</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модалка возврата (кладовщик) -->
+<div class="modal-overlay" id="returnModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Приём возврата</h3>
+      <button type="button" class="modal-close" onclick="closeReturnModal()">&times;</button>
+    </div>
+    <form id="return-form" onsubmit="submitReturn(event)">
+      <div class="modal-body">
+        <input type="hidden" id="return-tool-id">
+        <p class="hint" id="return-tool-label" style="margin-bottom:1rem;"></p>
+        <div class="form-group">
+          <label for="return-result-status">Результат приёмки</label>
+          <select id="return-result-status" required>
+            <option value="available">Исправен</option>
+            <option value="maintenance">Требует обслуживания/заточки</option>
+            <option value="scrapped">Списан (брак/поломка)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="return-condition">Комментарий</label>
+          <textarea id="return-condition" rows="3" placeholder="Необязательно: опишите состояние инструмента"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeReturnModal()">Отмена</button>
+        <button type="submit" class="btn btn-success">Подтвердить возврат</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модалка добавления / редактирования -->
+{% if can_add_tools %}
+<div class="modal-overlay" id="editToolModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="edit-modal-title">Добавить инструмент</h3>
+      <button type="button" class="modal-close" onclick="closeEditToolModal()">&times;</button>
+    </div>
+    <form id="tool-form" onsubmit="submitEditTool(event)">
+      <div class="modal-body">
+        <input type="hidden" id="tool-id">
+        <div class="form-group" id="tool-type-group">
+          <label for="tool-type">Тип инструмента</label>
+          <select id="tool-type" required>
+            {% for tt in tool_types %}
+            {% set cat = tt.get("tms_tool_categories") or {} %}
+            <option value="{{ tt.id }}">{{ tt.model_name }}{% if cat.name %} ({{ cat.name }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="tool-warehouse">Склад</label>
+          <select id="tool-warehouse" required>
+            {% for wh in warehouses %}
+            <option value="{{ wh.id }}">{{ wh.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="tool-inv">Инвентарный номер</label>
+          <input type="text" id="tool-inv">
+        </div>
+        <div class="form-group">
+          <label for="tool-serial">Серийный номер</label>
+          <input type="text" id="tool-serial">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeEditToolModal()">Отмена</button>
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const apiOpts = { credentials: "include", headers: { "Content-Type": "application/json" } };
+const STATUS_LABELS = { available: "Доступен", in_use: "В работе", maintenance: "На обслуживании", scrapped: "Списан" };
+const CURRENT_USER_ID = {{ user.id | tojson | safe }};
+const IS_CLERK = {{ is_clerk | tojson | safe }};
+const CAN_EDIT_TOOLS = {{ can_edit_tools | tojson | safe }};
+const CAN_DELETE_TOOLS = {{ can_delete_tools | tojson | safe }};
+const EMPLOYEES = {{ employees | tojson | safe }};
+
+function getToolRowData(toolId) {
+  const row = document.getElementById(`row-${toolId}`);
+  if (!row) return null;
+  return JSON.parse(row.dataset.tool);
+}
+
+function toolLabel(data) {
+  return data.inventory_number || data.serial_number || data.id;
+}
+
+function updateRowAfterStatusChange(toolId, status, wearCount) {
+  const row = document.getElementById(`row-${toolId}`);
+  if (!row) return;
+  const toolData = JSON.parse(row.dataset.tool);
+  toolData.status = status;
+  if (wearCount != null) toolData.wear_count = wearCount;
+  row.dataset.tool = JSON.stringify(toolData);
+
+  const statusCell = row.querySelector(".tool-status-cell .status");
+  statusCell.className = `status status-${status}`;
+  statusCell.textContent = STATUS_LABELS[status] || status;
+
+  if (wearCount != null) {
+    row.querySelector(".tool-wear-cell").textContent = wearCount;
+  }
+
+  const actionsCell = row.querySelector(".tool-actions-cell");
+  if (!actionsCell) return;
+
+  const parts = [];
+  if (IS_CLERK) {
+    if (status === "available") {
+      parts.push(`<button type="button" class="btn btn-info btn-sm" onclick="openIssueModal('${toolId}')">Выдать</button>`);
+    } else if (status === "in_use") {
+      parts.push(`<button type="button" class="btn btn-success btn-sm" onclick="openReturnModal('${toolId}')">Принять возврат</button>`);
+    }
+  }
+  if (CAN_EDIT_TOOLS) {
+    parts.push(`<button type="button" class="btn btn-secondary btn-sm" onclick="openEditToolModal('${toolId}')">Изменить</button>`);
+    if (CAN_DELETE_TOOLS) {
+      const name = toolData.inventory_number || toolData.serial_number || toolId;
+      parts.push(`<button type="button" class="btn btn-danger btn-sm btn-delete-tool" data-tool-id="${toolId}" data-tool-name="${name}">Удалить</button>`);
+    }
+  }
+  if (status === "scrapped") {
+    parts.push(`<a class="btn btn-info btn-sm" href="/api/v1/reports/export/word/write-off/${toolId}">Word: Акт</a>`);
+  }
+  actionsCell.innerHTML = parts.join(" ");
+  actionsCell.querySelectorAll(".btn-delete-tool").forEach(btn => {
+    btn.onclick = () => deleteTool(btn.dataset.toolId, btn.dataset.toolName);
+  });
+}
+
+/* --- Выдача --- */
+function openIssueModal(toolId) {
+  const toolData = getToolRowData(toolId);
+  if (!toolData) return;
+  document.getElementById("issue-tool-id").value = toolId;
+  document.getElementById("issue-tool-label").textContent = `Инструмент: ${toolLabel(toolData)}`;
+  document.getElementById("issue-form").reset();
+  document.getElementById("issue-tool-id").value = toolId;
+  document.getElementById("issue-location").value = "";
+  document.getElementById("issueModal").classList.add("open");
+}
+
+function closeIssueModal() {
+  document.getElementById("issueModal").classList.remove("open");
+}
+
+function syncIssueLocation() {
+  const sel = document.getElementById("issue-employee");
+  const opt = sel.selectedOptions[0];
+  document.getElementById("issue-location").value = opt?.dataset.locationName || "—";
+}
+
+async function submitIssue(event) {
+  event.preventDefault();
+  const toolId = document.getElementById("issue-tool-id").value;
+  const employeeId = document.getElementById("issue-employee").value;
+  if (!employeeId) { alert("Выберите сотрудника"); return; }
+
+  const payload = {
+    tool_id: toolId,
+    employee_id: employeeId,
+    issued_by: CURRENT_USER_ID,
+    notes: document.getElementById("issue-notes").value.trim() || null,
+  };
+
+  const resp = await fetch("/api/v1/tools/internal/issue", {
+    ...apiOpts,
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  if (resp.ok) {
+    const data = await resp.json();
+    updateRowAfterStatusChange(toolId, data.tool?.status || "in_use", data.tool?.wear_count);
+    closeIssueModal();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    alert(typeof err.detail === "string" ? err.detail : "Ошибка выдачи");
+  }
+}
+
+/* --- Возврат --- */
+function openReturnModal(toolId) {
+  const toolData = getToolRowData(toolId);
+  if (!toolData) return;
+  document.getElementById("return-tool-id").value = toolId;
+  document.getElementById("return-tool-label").textContent = `Инструмент: ${toolLabel(toolData)}`;
+  document.getElementById("return-form").reset();
+  document.getElementById("return-tool-id").value = toolId;
+  document.getElementById("returnModal").classList.add("open");
+}
+
+function closeReturnModal() {
+  document.getElementById("returnModal").classList.remove("open");
+}
+
+async function submitReturn(event) {
+  event.preventDefault();
+  const toolId = document.getElementById("return-tool-id").value;
+  const comment = document.getElementById("return-condition").value.trim();
+  const payload = {
+    tool_id: toolId,
+    result_status: document.getElementById("return-result-status").value,
+    condition_on_return: comment || null,
+  };
+
+  const resp = await fetch("/api/v1/tools/internal/return", {
+    ...apiOpts,
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  if (resp.ok) {
+    const data = await resp.json();
+    updateRowAfterStatusChange(toolId, data.tool?.status || "available", data.tool?.wear_count);
+    closeReturnModal();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    alert(typeof err.detail === "string" ? err.detail : "Ошибка возврата");
+  }
+}
+
+/* --- Редактирование --- */
+function openEditToolModal(toolId) {
+  const modal = document.getElementById("editToolModal");
+  if (!modal) return;
+
+  const titleEl = document.getElementById("edit-modal-title");
+  const typeGroup = document.getElementById("tool-type-group");
+  const typeSelect = document.getElementById("tool-type");
+  if (!toolId) {
+    document.getElementById("tool-form").reset();
+    document.getElementById("tool-id").value = "";
+    typeGroup.style.display = "";
+    typeSelect.required = true;
+    titleEl.textContent = "Добавить инструмент";
+    modal.classList.add("open");
+    return;
+  }
+
+  const toolData = getToolRowData(toolId);
+  if (!toolData) return;
+  document.getElementById("tool-id").value = toolData.id;
+  typeGroup.style.display = "none";
+  typeSelect.required = false;
+  document.getElementById("tool-warehouse").value = toolData.warehouse_id || "";
+  document.getElementById("tool-inv").value = toolData.inventory_number || "";
+  document.getElementById("tool-serial").value = toolData.serial_number || "";
+  titleEl.textContent = "Редактировать инструмент";
+  modal.classList.add("open");
+}
+
+function closeEditToolModal() {
+  const modal = document.getElementById("editToolModal");
+  if (modal) modal.classList.remove("open");
+}
+
+async function submitEditTool(event) {
+  event.preventDefault();
+  const id = document.getElementById("tool-id").value;
+  const payload = id
+    ? {
+        warehouse_id: document.getElementById("tool-warehouse").value,
+        inventory_number: document.getElementById("tool-inv").value || null,
+        serial_number: document.getElementById("tool-serial").value || null,
+      }
+    : {
+        type_id: document.getElementById("tool-type").value,
+        warehouse_id: document.getElementById("tool-warehouse").value,
+        inventory_number: document.getElementById("tool-inv").value || null,
+        serial_number: document.getElementById("tool-serial").value || null,
+      };
+  const url = id ? `/api/v1/tools/${id}` : "/api/v1/tools/";
+  const resp = await fetch(url, { ...apiOpts, method: id ? "PUT" : "POST", body: JSON.stringify(payload) });
+  if (resp.ok) location.reload();
+  else {
+    const err = await resp.json().catch(() => ({}));
+    alert(typeof err.detail === "string" ? err.detail : "Ошибка сохранения");
+  }
+}
+
+async function deleteTool(toolId, name) {
+  if (!confirm(`Удалить инструмент «${name}»?`)) return;
+  const resp = await fetch(`/api/v1/tools/${toolId}`, { method: "DELETE", credentials: "include" });
+  if (resp.ok || resp.status === 204) document.getElementById(`row-${toolId}`)?.remove();
+  else {
+    const err = await resp.json().catch(() => ({}));
+    showDeleteError(resp, err);
+  }
+}
+
+document.getElementById("issueModal")?.addEventListener("click", e => {
+  if (e.target.id === "issueModal") closeIssueModal();
+});
+document.getElementById("returnModal")?.addEventListener("click", e => {
+  if (e.target.id === "returnModal") closeReturnModal();
+});
+document.getElementById("editToolModal")?.addEventListener("click", e => {
+  if (e.target.id === "editToolModal") closeEditToolModal();
+});
+
+document.querySelectorAll(".btn-delete-tool").forEach(btn => {
+  btn.addEventListener("click", () => deleteTool(btn.dataset.toolId, btn.dataset.toolName));
+});
+</script>
+{% endblock %}

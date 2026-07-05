@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block title %}Управление пользователями — BAAZ TMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Управление пользователями</h1>
+  <button type="button" class="btn btn-primary" id="btn-add-user">+ Новый пользователь</button>
+</div>
+
+<div class="card">
+  {% if users %}
+  <table>
+    <thead>
+      <tr>
+        <th>Логин</th>
+        <th>Роль</th>
+        <th>Сотрудник</th>
+        <th>Подразделение</th>
+        <th>Склад</th>
+        <th>Создан</th>
+        <th>Действия</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      {% set emp = u.get("tms_employees") or {} %}
+      {% set loc = emp.get("tms_locations") or {} %}
+      {% set wh = u.get("tms_warehouses") or {} %}
+      {% set role_labels = {"admin": "Администратор", "master": "Мастер", "clerk": "Кладовщик"} %}
+      <tr data-user='{{ {"id": u.id|string, "login": u.login, "role": u.role, "employee_id": (u.employee_id|string if u.employee_id else ""), "warehouse_id": (u.warehouse_id|string if u.warehouse_id else "")}|tojson }}'>
+        <td>{{ u.login }}</td>
+        <td><span class="role-badge" style="background:var(--baaz-dark-muted);color:#fff;">{{ role_labels.get(u.role, u.role) }}</span></td>
+        <td>{{ emp.full_name or "—" }}</td>
+        <td>{{ loc.name or "—" }}</td>
+        <td>{{ wh.name or "—" }}</td>
+        <td>{{ (u.created_at or "")[:10] or "—" }}</td>
+        <td>
+          <button type="button" class="btn btn-secondary btn-sm btn-edit-user">Изменить</button>
+          <button type="button" class="btn btn-danger btn-sm btn-delete-user" data-id="{{ u.id }}" data-login="{{ u.login }}">Удалить</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">Пользователи не найдены</div>
+  {% endif %}
+</div>
+
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="user-modal-title">Новый пользователь</h3>
+      <button type="button" class="modal-close" data-close-modal>&times;</button>
+    </div>
+    <form id="user-form">
+      <div class="modal-body">
+        <input type="hidden" id="user-id">
+        <div class="form-group">
+          <label for="user-login">Логин</label>
+          <input type="text" id="user-login" required maxlength="64" autocomplete="off">
+          <p id="login-warning" class="hint" style="display:none;color:var(--baaz-accent);margin-top:.35rem;font-weight:600;"></p>
+        </div>
+        <div class="form-group">
+          <label for="user-password">Пароль <span id="pwd-hint" class="hint"></span></label>
+          <input type="password" id="user-password" minlength="6" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="user-role">Роль</label>
+          <select id="user-role" required>
+            <option value="admin">Администратор</option>
+            <option value="master">Мастер / технолог</option>
+            <option value="clerk">Кладовщик</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="user-employee">Сотрудник</label>
+          <select id="user-employee" required>
+            <option value="" disabled selected>Выберите сотрудника</option>
+            {% for e in employees %}
+            <option value="{{ e.id }}">{{ e.full_name }} ({{ e.badge_number }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" id="warehouse-group">
+          <label for="user-warehouse">Склад (для кладовщика)</label>
+          <select id="user-warehouse">
+            <option value="">— не выбран —</option>
+            {% for wh in warehouses %}
+            <option value="{{ wh.id }}">{{ wh.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal>Отмена</button>
+        <button type="submit" class="btn btn-primary" id="user-submit-btn">Создать</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const apiOpts = { credentials: "include", headers: { "Content-Type": "application/json" } };
+const EXISTING_LOGINS = {{ users | map(attribute='login') | list | tojson | safe }};
+const modal = document.getElementById("user-modal");
+const form = document.getElementById("user-form");
+const roleSelect = document.getElementById("user-role");
+const warehouseGroup = document.getElementById("warehouse-group");
+const pwdInput = document.getElementById("user-password");
+const pwdHint = document.getElementById("pwd-hint");
+const loginInput = document.getElementById("user-login");
+const loginWarning = document.getElementById("login-warning");
+let editingOriginalLogin = "";
+
+function loginTaken(login, excludeLogin) {
+  const normalized = login.trim().toLowerCase();
+  if (!normalized) return false;
+  if (excludeLogin && normalized === excludeLogin.trim().toLowerCase()) return false;
+  return EXISTING_LOGINS.some(l => String(l).trim().toLowerCase() === normalized);
+}
+
+function updateLoginWarning() {
+  const login = loginInput.value.trim();
+  if (loginTaken(login, editingOriginalLogin)) {
+    loginWarning.textContent = "Этот логин уже занят";
+    loginWarning.style.display = "block";
+    return true;
+  }
+  loginWarning.style.display = "none";
+  loginWarning.textContent = "";
+  return false;
+}
+
+function toggleWarehouse() {
+  warehouseGroup.style.display = roleSelect.value === "clerk" ? "block" : "none";
+}
+
+function openCreateModal() {
+  document.getElementById("user-id").value = "";
+  editingOriginalLogin = "";
+  document.getElementById("user-modal-title").textContent = "Новый пользователь";
+  document.getElementById("user-submit-btn").textContent = "Создать";
+  pwdInput.required = true;
+  pwdHint.textContent = "(обязательно, минимум 6 символов)";
+  form.reset();
+  loginWarning.style.display = "none";
+  toggleWarehouse();
+  modal.classList.add("open");
+}
+
+function openEditModal(data) {
+  document.getElementById("user-id").value = data.id;
+  editingOriginalLogin = data.login || "";
+  document.getElementById("user-modal-title").textContent = "Редактировать пользователя";
+  document.getElementById("user-submit-btn").textContent = "Сохранить";
+  document.getElementById("user-login").value = data.login;
+  pwdInput.value = "";
+  pwdInput.required = false;
+  pwdHint.textContent = "(оставьте пустым, чтобы не менять)";
+  roleSelect.value = data.role;
+  document.getElementById("user-employee").value = data.employee_id || "";
+  document.getElementById("user-warehouse").value = data.warehouse_id || "";
+  updateLoginWarning();
+  toggleWarehouse();
+  modal.classList.add("open");
+}
+
+function closeModal() { modal.classList.remove("open"); }
+
+document.getElementById("btn-add-user")?.addEventListener("click", openCreateModal);
+document.querySelectorAll(".btn-edit-user").forEach(btn => {
+  btn.addEventListener("click", () => openEditModal(JSON.parse(btn.closest("tr").dataset.user)));
+});
+roleSelect?.addEventListener("change", toggleWarehouse);
+loginInput?.addEventListener("input", updateLoginWarning);
+document.querySelectorAll("[data-close-modal]").forEach(el => el.addEventListener("click", closeModal));
+modal?.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+
+form?.addEventListener("submit", async e => {
+  e.preventDefault();
+  const id = document.getElementById("user-id").value;
+  const login = loginInput.value.trim();
+  const password = pwdInput.value;
+
+  if (!login) {
+    alert("Логин не может быть пустым");
+    return;
+  }
+  if (updateLoginWarning()) {
+    alert("Этот логин уже занят");
+    return;
+  }
+  if (!id) {
+    if (!password.trim()) {
+      alert("Пароль обязателен при создании пользователя");
+      return;
+    }
+    if (password.trim().length < 6) {
+      alert("Пароль должен содержать минимум 6 символов");
+      return;
+    }
+  }
+
+  const payload = {
+    login,
+    role: roleSelect.value,
+    employee_id: document.getElementById("user-employee").value,
+    warehouse_id: document.getElementById("user-warehouse").value || null,
+  };
+  if (!payload.employee_id) { alert("Выберите сотрудника"); return; }
+  if (!id) {
+    payload.password = password;
+  } else if (password.trim()) {
+    payload.password = password.trim();
+  }
+
+  const url = id ? `/api/v1/admin/users/${id}` : "/api/v1/admin/users";
+  const resp = await fetch(url, { ...apiOpts, method: id ? "PUT" : "POST", body: JSON.stringify(payload) });
+  if (resp.ok) location.reload();
+  else {
+    const err = await resp.json().catch(() => ({}));
+    const detail = typeof err.detail === "string" ? err.detail : (err.detail || "Ошибка сохранения");
+    if (detail.includes("логин уже занят") || detail.toLowerCase().includes("unique")) {
+      loginWarning.textContent = "Этот логин уже занят";
+      loginWarning.style.display = "block";
+    }
+    alert(detail);
+  }
+});
+
+document.querySelectorAll(".btn-delete-user").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    if (!confirm(`Удалить пользователя «${btn.dataset.login}»?`)) return;
+    const resp = await fetch(`/api/v1/admin/users/${btn.dataset.id}`, { method: "DELETE", credentials: "include" });
+    if (resp.ok || resp.status === 204) location.reload();
+    else { const err = await resp.json().catch(() => ({})); showDeleteError(resp, err); }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,80 @@
+<div class="req-card" data-req-id="{{ req.id }}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem;">
+    <div>
+      <strong style="font-size:.95rem;">Заявка {{ req.id[:8] }}…</strong>
+      {% if req.external_order_id %}
+      <span class="hint"> · CMMS: {{ req.external_order_id[:8] }}…</span>
+      {% else %}
+      <span class="hint"> · Внутренняя</span>
+      {% endif %}
+    </div>
+    <span class="status status-{{ req.status or 'new' }}">{{ req.status or 'new' }}</span>
+  </div>
+  <div class="req-meta">
+    <span>Склад: {{ (req.get("tms_warehouses") or {}).get("name", "—") }}</span>
+    <span>Исполнитель: {{ req.technician_name or "—" }}</span>
+    <span>Создана: {{ req.created_at[:16].replace("T", " ") if req.created_at else "—" }}</span>
+    {% if req.cancelled_at %}<span>Отменена: {{ req.cancel_reason or "—" }}</span>{% endif %}
+  </div>
+
+  {% set lines = req.get("tms_requisition_lines") or [] %}
+  {% if lines %}
+  <table class="lines-table">
+    <thead>
+      <tr>
+        <th>Номенклатура</th>
+        <th>Инструмент</th>
+        <th>Статус</th>
+        <th>Действия</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      {% set tool = line.get("tms_tools") or {} %}
+      {% set tt = line.get("tms_tool_types") or {} %}
+      <tr>
+        <td>{{ tt.model_name or "—" }}</td>
+        <td>
+          {% if tool %}
+            {{ tool.inventory_number or "—" }} / {{ tool.serial_number or "—" }}
+          {% else %}—{% endif %}
+        </td>
+        <td><span class="status status-{{ line.status }}">{{ line.status }}</span></td>
+        <td>
+          {% if is_clerk or is_admin %}
+          {% if line.status == 'pending' %}
+          <button type="button" class="btn btn-secondary btn-sm btn-pick"
+                  data-line-id="{{ line.id }}"
+                  data-warehouse-id="{{ req.warehouse_id }}"
+                  data-catalog-id="{{ line.catalog_item_id or '' }}"
+                  data-hint="Выберите экземпляр для номенклатуры: {{ tt.model_name or '—' }}">
+            Подобрать
+          </button>
+          {% elif line.status == 'issued' %}
+          <button type="button" class="btn btn-success btn-sm btn-return"
+                  data-line-id="{{ line.id }}">
+            Принять возврат
+          </button>
+          {% else %}—{% endif %}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">Строки заявки отсутствуют</p>
+  {% endif %}
+
+  {% if (is_clerk or is_admin) and lines and req.status not in ['issued', 'returned', 'cancelled'] %}
+  {% set issue_ns = namespace(can=true) %}
+  {% for line in lines %}
+    {% if line.status != 'reserved' %}{% set issue_ns.can = false %}{% endif %}
+  {% endfor %}
+  {% if issue_ns.can %}
+  <div class="req-actions">
+    <button type="button" class="btn btn-primary btn-sm btn-issue" data-req-id="{{ req.id }}">Выдать комплект</button>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>

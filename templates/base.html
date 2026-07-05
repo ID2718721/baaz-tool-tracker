@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}BAAZ TMS{% endblock %}</title>
+  <style>
+    :root {
+      --baaz-dark: #212529;
+      --baaz-dark-light: #343a40;
+      --baaz-dark-muted: #495057;
+      --baaz-accent: #c8102e;
+      --baaz-gray: #f4f5f7;
+      --baaz-border: #dee2e6;
+      --baaz-text: #212529;
+      --baaz-muted: #6c757d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--baaz-gray);
+      color: var(--baaz-text);
+      min-height: 100vh;
+    }
+    .topbar {
+      background: linear-gradient(135deg, var(--baaz-dark) 0%, var(--baaz-dark-light) 100%);
+      color: #fff;
+      padding: 0 1.5rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 10px rgba(0,0,0,.2);
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: .03em;
+      color: #fff;
+      text-decoration: none;
+    }
+    .topbar-brand:hover { color: rgba(255,255,255,.92); }
+    .topbar-brand .logo {
+      width: 36px;
+      height: 36px;
+      background: #fff;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--baaz-dark);
+      font-weight: 900;
+      font-size: .75rem;
+    }
+    .topbar-nav {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+    .topbar-nav .nav-section-label {
+      color: rgba(255,255,255,.55);
+      font-size: .82rem;
+      font-weight: 600;
+      margin: 0 0.35rem 0 0.75rem;
+      white-space: nowrap;
+      cursor: default;
+      user-select: none;
+      pointer-events: none;
+    }
+    .topbar-nav .nav-section-label::after {
+      content: "";
+      display: inline-block;
+      width: 1px;
+      height: 14px;
+      background: rgba(255,255,255,.25);
+      margin-left: 0.75rem;
+      vertical-align: middle;
+    }
+    .topbar-nav a {
+      color: rgba(255,255,255,.75);
+      text-decoration: none;
+      font-size: .9rem;
+      padding: .35rem 0.65rem;
+      margin: 0 0.15rem;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+    }
+    .topbar-nav a:hover, .topbar-nav a.active {
+      color: #fff;
+      border-bottom-color: rgba(255,255,255,.6);
+    }
+    .topbar-user { display: flex; align-items: center; gap: 1rem; font-size: .85rem; }
+    .role-badge {
+      background: rgba(255,255,255,.12);
+      padding: .2rem .55rem;
+      border-radius: 3px;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .logout-form { display: inline; }
+    .logout-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,.35);
+      color: #fff;
+      padding: .3rem .75rem;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: .8rem;
+    }
+    .logout-btn:hover { background: rgba(255,255,255,.08); }
+    .container { max-width: 1280px; margin: 0 auto; padding: 1.5rem; }
+    .page-header {
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .75rem;
+    }
+    .page-header h1 { font-size: 1.4rem; color: var(--baaz-dark); font-weight: 700; }
+    .page-header-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .card {
+      background: #fff;
+      border: 1px solid var(--baaz-border);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    }
+    .filters {
+      display: flex;
+      gap: .75rem;
+      flex-wrap: wrap;
+      padding: 1rem;
+      background: #fafbfc;
+      border-bottom: 1px solid var(--baaz-border);
+      align-items: flex-end;
+    }
+    .filters label {
+      display: flex;
+      flex-direction: column;
+      gap: .25rem;
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--baaz-muted);
+    }
+    .filters select, .filters input {
+      padding: .45rem .65rem;
+      border: 1px solid var(--baaz-border);
+      border-radius: 4px;
+      font-size: .85rem;
+      min-width: 160px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+    th {
+      background: var(--baaz-dark);
+      color: #fff;
+      text-align: left;
+      padding: .75rem 1.15rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    td { padding: .65rem 1.15rem; border-bottom: 1px solid var(--baaz-border); vertical-align: middle; }
+    tr:hover td { background: #f8f9fa; }
+    .status {
+      display: inline-block;
+      padding: .15rem .5rem;
+      border-radius: 3px;
+      font-size: .72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-available, .status-returned { background: #d1e7dd; color: #0f5132; }
+    .status-in_use, .status-issued { background: #fff3cd; color: #664d03; }
+    .status-maintenance { background: #f8d7da; color: #842029; }
+    .status-scrapped, .status-cancelled { background: #e2e3e5; color: #41464b; }
+    .status-new, .status-pending { background: #e2e3e5; color: #41464b; }
+    .status-reserved, .status-ready_for_issue, .status-partially_reserved { background: #cff4fc; color: #055160; }
+    .btn {
+      display: inline-block;
+      padding: .4rem .85rem;
+      border-radius: 4px;
+      font-size: .8rem;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .btn-primary { background: var(--baaz-dark); color: #fff; }
+    .btn-primary:hover { background: var(--baaz-dark-light); }
+    .btn-secondary { background: #fff; color: var(--baaz-dark); border: 1px solid var(--baaz-border); }
+    .btn-secondary:hover { background: #f8f9fa; }
+    .btn-sm { padding: .25rem .55rem; font-size: .75rem; }
+    .btn-danger { background: var(--baaz-accent); color: #fff; }
+    .btn-danger:hover { background: #a00d24; }
+    .btn-success { background: #198754; color: #fff; }
+    .btn-success:hover { background: #157347; }
+    .btn-info { background: #0d6efd; color: #fff; }
+    .btn-info:hover { background: #0b5ed7; }
+    .empty-state { padding: 2.5rem; text-align: center; color: var(--baaz-muted); }
+    .tabs { display: flex; border-bottom: 2px solid var(--baaz-border); background: #fafbfc; }
+    .tab-btn {
+      padding: .85rem 1.25rem;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: .875rem;
+      font-weight: 600;
+      color: var(--baaz-muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+    .tab-btn.active { color: var(--baaz-dark); border-bottom-color: var(--baaz-dark); }
+    .tab-panel { display: none; padding: 0; }
+    .tab-panel.active { display: block; }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(33,37,41,.55);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,.2);
+    }
+    .modal-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--baaz-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--baaz-dark);
+      color: #fff;
+    }
+    .modal-header h3 { font-size: 1rem; }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 1.25rem;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .modal-body { padding: 1.25rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label {
+      display: block;
+      font-size: .8rem;
+      font-weight: 600;
+      margin-bottom: .35rem;
+      color: var(--baaz-dark);
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: .55rem .75rem;
+      border: 1px solid var(--baaz-border);
+      border-radius: 4px;
+      font-size: .875rem;
+    }
+    .modal-footer {
+      padding: .85rem 1.25rem;
+      border-top: 1px solid var(--baaz-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: .5rem;
+    }
+    .lines-table { margin-top: .5rem; font-size: .8rem; }
+    .lines-table th { background: var(--baaz-dark-muted); font-size: .72rem; padding: .55rem .85rem; }
+    .lines-table td { padding: .5rem .85rem; }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+    .dashboard-card {
+      border: 1px solid var(--baaz-border);
+      border-radius: 8px;
+      padding: 1.35rem;
+      background: linear-gradient(180deg, #fff 0%, #f8f9fa 100%);
+      transition: box-shadow .2s, transform .2s, border-color .2s;
+      height: 100%;
+    }
+    a.dashboard-link { text-decoration: none; color: inherit; display: block; }
+    a.dashboard-link:hover .dashboard-card {
+      box-shadow: 0 4px 14px rgba(33,37,41,.12);
+      transform: translateY(-2px);
+      border-color: var(--baaz-dark-muted);
+    }
+    .dashboard-card-title { font-weight: 700; color: var(--baaz-dark); font-size: 1rem; }
+    .dashboard-card-desc { font-size: .82rem; color: var(--baaz-muted); margin-top: .35rem; line-height: 1.4; }
+    .dashboard-section { padding: 1.5rem; margin-bottom: 1.25rem; }
+    .dashboard-section-title { font-size: 1.1rem; color: var(--baaz-dark); margin-bottom: 1rem; }
+    .dashboard-subtitle { font-size: .95rem; color: var(--baaz-dark); margin: 1.25rem 0 .75rem; }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+    }
+    .stat-widget {
+      background: linear-gradient(135deg, var(--baaz-dark) 0%, var(--baaz-dark-light) 100%);
+      color: #fff;
+      border-radius: 8px;
+      padding: 1.25rem 1rem;
+      text-align: center;
+    }
+    .stat-value { font-size: 2rem; font-weight: 800; line-height: 1.1; }
+    .stat-label { font-size: .78rem; opacity: .85; margin-top: .35rem; text-transform: uppercase; letter-spacing: .04em; }
+    .activity-table { margin-top: .5rem; font-size: .85rem; }
+    .admin-banner {
+      background: #f8f9fa;
+      border-left: 4px solid var(--baaz-dark);
+      padding: .65rem 1rem;
+      margin-bottom: 1rem;
+      font-size: .85rem;
+      color: var(--baaz-dark-muted);
+    }
+    .req-card { border-bottom: 1px solid var(--baaz-border); padding: 1rem; }
+    .req-card:last-child { border-bottom: none; }
+    .req-meta { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .8rem; color: var(--baaz-muted); margin-bottom: .75rem; }
+    .req-actions { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+    .hint { font-size: .8rem; color: var(--baaz-muted); }
+    .loading { text-align: center; padding: 2rem; color: var(--baaz-muted); }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  {% if user is defined and user %}
+  <header class="topbar">
+    <a href="/" class="topbar-brand" title="На главную">
+      <div class="logo">БААЗ</div>
+      <span>АИС TMS — Учёт инструмента</span>
+    </a>
+    <nav class="topbar-nav">
+      {% if user.role == 'admin' %}
+      <span class="nav-section-label">Система</span>
+      <a href="/admin/users" {% if request.url.path == '/admin/users' %}class="active"{% endif %}>Пользователи</a>
+      <a href="/admin/structure" {% if request.url.path == '/admin/structure' %}class="active"{% endif %}>Цеха и склады</a>
+      <span class="nav-section-label">Склад</span>
+      <a href="/inventory" {% if request.url.path == '/inventory' %}class="active"{% endif %}>Инвентарь</a>
+      <span class="nav-section-label">Производство</span>
+      <a href="/master/catalog" {% if request.url.path == '/master/catalog' %}class="active"{% endif %}>Справочник</a>
+      <a href="/master/structure" {% if request.url.path == '/master/structure' %}class="active"{% endif %}>Структура</a>
+      <a href="/analytics" {% if request.url.path == '/analytics' %}class="active"{% endif %}>Аналитика</a>
+      {% elif user.role == 'master' %}
+      <span class="nav-section-label">Производство</span>
+      <a href="/master/catalog" {% if request.url.path == '/master/catalog' %}class="active"{% endif %}>Справочник</a>
+      <a href="/master/structure" {% if request.url.path == '/master/structure' %}class="active"{% endif %}>Структура</a>
+      <a href="/analytics" {% if request.url.path == '/analytics' %}class="active"{% endif %}>Аналитика</a>
+      {% elif user.role == 'clerk' %}
+      <a href="/inventory" {% if request.url.path == '/inventory' %}class="active"{% endif %}>Инвентарь</a>
+      <a href="/requisitions" {% if request.url.path == '/requisitions' %}class="active"{% endif %}>Заявки</a>
+      {% endif %}
+    </nav>
+    <div class="topbar-user">
+      <span>{{ user.employee_full_name or user.login }}</span>
+      <span class="role-badge">{{ user.role }}</span>
+      <form class="logout-form" method="post" action="/api/v1/auth/logout">
+        <button type="submit" class="logout-btn">Выход</button>
+      </form>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if user is defined and user %}
+  <script>
+  function parseApiErrorDetail(err) {
+    if (!err) return "";
+    if (typeof err.detail === "string") return err.detail;
+    if (Array.isArray(err.detail)) {
+      return err.detail.map(item => (typeof item === "string" ? item : item.msg || JSON.stringify(item))).join("; ");
+    }
+    return String(err.detail || "");
+  }
+
+  function isForeignKeyDeleteError(status, message) {
+    const msg = (message || "").toLowerCase();
+    return status === 409
+      || msg.includes("foreign key")
+      || msg.includes("violates foreign key constraint")
+      || msg.includes("23503")
+      || msg.includes("still referenced")
+      || msg.includes("нарушает ограничение внешнего ключа");
+  }
+
+  function showDeleteError(resp, err) {
+    const detail = parseApiErrorDetail(err);
+    if (isForeignKeyDeleteError(resp.status, detail)) {
+      alert("Ошибка: Нельзя удалить объект, так как к нему привязаны другие записи (инструменты, склады или сотрудники). Сначала удалите или перепривяжите связанные данные.");
+      return;
+    }
+    alert(detail || "Ошибка удаления");
+  }
+  </script>
+  {% endif %}
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Аналитика — BAAZ TMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Аналитика</h1>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-secondary" id="btn-refresh">Обновить</button>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1.25rem;padding:1rem;">
+  <h2 style="font-size:1rem;color:var(--baaz-dark);margin-bottom:.75rem;">Экспорт отчётов</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;">
+    <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.75rem;font-weight:600;color:var(--baaz-muted);">
+      Склад (ведомость остатков)
+      <select id="export-warehouse" style="padding:.45rem .65rem;border:1px solid var(--baaz-border);border-radius:4px;min-width:200px;">
+        {% for wh in warehouses %}
+        <option value="{{ wh.id }}">{{ wh.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <a class="btn btn-secondary" id="btn-export-inventory" href="#">Excel: остатки</a>
+    <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.75rem;font-weight:600;color:var(--baaz-muted);">
+      Списания с
+      <input type="date" id="writeoff-from" style="padding:.45rem .65rem;border:1px solid var(--baaz-border);border-radius:4px;">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.75rem;font-weight:600;color:var(--baaz-muted);">
+      по
+      <input type="date" id="writeoff-to" style="padding:.45rem .65rem;border:1px solid var(--baaz-border);border-radius:4px;">
+    </label>
+    <a class="btn btn-secondary" id="btn-export-writeoffs" href="#">Excel: списания</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1.25rem;">
+  <div style="padding:1rem 1rem 0;">
+    <h2 style="font-size:1rem;color:var(--baaz-dark);margin-bottom:.5rem;">Отчёт по списаниям</h2>
+    <p class="hint">Списанный инструмент — формирование акта в Word</p>
+  </div>
+  {% if scrapped_tools %}
+  <table>
+    <thead>
+      <tr>
+        <th>Инв. номер</th>
+        <th>Серийный номер</th>
+        <th>Модель</th>
+        <th>Дата списания</th>
+        <th>Действия</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tool in scrapped_tools %}
+      {% set tt = tool.get("tms_tool_types") or {} %}
+      <tr>
+        <td>{{ tool.inventory_number or "—" }}</td>
+        <td>{{ tool.serial_number or "—" }}</td>
+        <td>{{ tt.model_name or "—" }}</td>
+        <td>{{ (tool.last_check or "")[:10] or "—" }}</td>
+        <td>
+          <a class="btn btn-info btn-sm" href="/api/v1/reports/export/word/write-off/{{ tool.id }}">Word: Акт</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">Списанных инструментов нет</div>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:1.25rem;">
+  <div style="padding:1rem 1rem 0;">
+    <h2 style="font-size:1rem;color:var(--baaz-dark);margin-bottom:.5rem;">Сотрудники предпенсионного возраста (женщины 55+)</h2>
+    <p class="hint" id="pensioners-meta"></p>
+  </div>
+  <div id="pensioners-loading" class="loading">Загрузка…</div>
+  <div id="pensioners-content" style="display:none;"></div>
+</div>
+
+<div class="card" style="margin-bottom:1.25rem;">
+  <div style="padding:1rem 1rem 0;">
+    <h2 style="font-size:1rem;color:var(--baaz-dark);margin-bottom:.5rem;">Статистика по категориям инструмента</h2>
+    <p class="hint" id="stats-meta"></p>
+  </div>
+  <div id="stats-loading" class="loading">Загрузка…</div>
+  <table id="stats-table" style="display:none;">
+    <thead>
+      <tr><th>Категория</th><th>Кол-во</th><th>Доля, %</th></tr>
+    </thead>
+    <tbody id="stats-body"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div style="padding:1rem 1rem 0;">
+    <h2 style="font-size:1rem;color:var(--baaz-dark);margin-bottom:.5rem;">Инструменты, требующие поверки</h2>
+    <p class="hint" id="overdue-meta"></p>
+  </div>
+  <div id="overdue-loading" class="loading">Загрузка…</div>
+  <table id="overdue-table" style="display:none;">
+    <thead>
+      <tr>
+        <th>Инв. номер</th>
+        <th>Серийный номер</th>
+        <th>Тип</th>
+        <th>Последняя поверка</th>
+        <th>Срок поверки</th>
+        <th>Просрочка, дн.</th>
+        <th>Статус</th>
+      </tr>
+    </thead>
+    <tbody id="overdue-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const fetchOpts = { credentials: "include" };
+
+const STATUS_LABELS = {
+  available: "Доступен",
+  in_use: "В работе",
+  maintenance: "На обслуживании",
+  scrapped: "Списан",
+};
+
+function fmtDate(value) {
+  if (!value) return "—";
+  return String(value).slice(0, 10);
+}
+
+function addDays(isoDate, days) {
+  const base = fmtDate(isoDate);
+  if (base === "—") return "—";
+  const d = new Date(base + "T12:00:00");
+  if (Number.isNaN(d.getTime())) return "—";
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtStatus(status) {
+  if (!status) return "—";
+  return STATUS_LABELS[status] || status;
+}
+
+async function fetchJson(url) {
+  const resp = await fetch(url, fetchOpts);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const detail = data.detail;
+    const message = typeof detail === "string" ? detail : (Array.isArray(detail) ? detail.map(d => d.msg).join("; ") : `HTTP ${resp.status}`);
+    throw new Error(message || `HTTP ${resp.status}`);
+  }
+  return data;
+}
+
+function showLoadError(loadingEl, message) {
+  loadingEl.textContent = message || "Ошибка загрузки";
+  loadingEl.style.display = "block";
+}
+
+document.getElementById("btn-export-inventory")?.addEventListener("click", e => {
+  e.preventDefault();
+  const wh = document.getElementById("export-warehouse").value;
+  window.location.href = `/api/v1/reports/export/inventory/${wh}`;
+});
+
+document.getElementById("btn-export-writeoffs")?.addEventListener("click", e => {
+  e.preventDefault();
+  const from = document.getElementById("writeoff-from").value;
+  const to = document.getElementById("writeoff-to").value;
+  if (!from || !to) { alert("Укажите период для отчёта по списаниям"); return; }
+  window.location.href = `/api/v1/reports/export/write-offs?date_from=${from}&date_to=${to}`;
+});
+
+async function loadPensioners() {
+  const loading = document.getElementById("pensioners-loading");
+  const content = document.getElementById("pensioners-content");
+  loading.style.display = "block";
+  loading.textContent = "Загрузка…";
+  content.style.display = "none";
+  try {
+    const data = await fetchJson("/api/v1/analytics/pensioners");
+    document.getElementById("pensioners-meta").textContent =
+      `Год расчёта: ${data.year ?? "—"}. Всего: ${data.total ?? 0}.`;
+    if (!data.departments?.length) {
+      content.innerHTML = '<div class="empty-state">Нет данных</div>';
+    } else {
+      content.innerHTML = data.departments.map(dept => `
+        <div style="padding:1rem;border-top:1px solid var(--baaz-border);">
+          <strong>${dept.location_name || "Без подразделения"}</strong> (${dept.employees?.length || 0})
+          <table style="margin-top:.5rem;">
+            <thead><tr><th>Таб. №</th><th>ФИО</th><th>Дата рождения</th><th>Возраст</th></tr></thead>
+            <tbody>${(dept.employees || []).map(e => `
+              <tr>
+                <td>${e.badge_number || "—"}</td>
+                <td>${e.full_name || "—"}</td>
+                <td>${fmtDate(e.birth_date)}</td>
+                <td>${e.age ?? "—"}</td>
+              </tr>`).join("")}</tbody>
+          </table>
+        </div>`).join("");
+    }
+    loading.style.display = "none";
+    content.style.display = "block";
+  } catch (err) {
+    showLoadError(loading, `Ошибка загрузки: ${err.message}`);
+  }
+}
+
+async function loadStats() {
+  const loading = document.getElementById("stats-loading");
+  const table = document.getElementById("stats-table");
+  loading.style.display = "block";
+  loading.textContent = "Загрузка…";
+  table.style.display = "none";
+  try {
+    const data = await fetchJson("/api/v1/analytics/tool-stats");
+    document.getElementById("stats-meta").textContent = `Всего в инвентаре: ${data.total_tools ?? 0}.`;
+    document.getElementById("stats-body").innerHTML = (data.categories || []).map(c => `
+      <tr>
+        <td>${c.category_name || "—"}</td>
+        <td>${c.tool_count ?? 0}</td>
+        <td>${c.percentage ?? 0}%</td>
+      </tr>`).join("") || '<tr><td colspan="3" class="empty-state">Нет данных</td></tr>';
+    loading.style.display = "none";
+    table.style.display = "table";
+  } catch (err) {
+    showLoadError(loading, `Ошибка загрузки: ${err.message}`);
+  }
+}
+
+async function loadOverdue() {
+  const loading = document.getElementById("overdue-loading");
+  const table = document.getElementById("overdue-table");
+  loading.style.display = "block";
+  loading.textContent = "Загрузка…";
+  table.style.display = "none";
+  try {
+    const data = await fetchJson("/api/v1/analytics/overdue-calibration");
+    const asOf = fmtDate(data.as_of);
+    document.getElementById("overdue-meta").textContent =
+      `На дату ${asOf}. Найдено: ${data.total ?? 0}.`;
+    document.getElementById("overdue-body").innerHTML = (data.tools || []).map(t => {
+      const lastCheck = fmtDate(t.last_check);
+      const dueDate = addDays(t.last_check, 365);
+      const status = t.status || "available";
+      return `
+      <tr>
+        <td>${t.inventory_number || "—"}</td>
+        <td>${t.serial_number || "—"}</td>
+        <td>${t.type_name || "—"}</td>
+        <td>${lastCheck}</td>
+        <td>${dueDate}</td>
+        <td>${t.days_overdue != null ? t.days_overdue : "—"}</td>
+        <td><span class="status status-${status}">${fmtStatus(status)}</span></td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="7" class="empty-state">Нет просроченных</td></tr>';
+    loading.style.display = "none";
+    table.style.display = "table";
+  } catch (err) {
+    showLoadError(loading, `Ошибка загрузки: ${err.message}`);
+  }
+}
+
+async function loadAll() {
+  await Promise.all([loadPensioners(), loadStats(), loadOverdue()]);
+}
+
+document.getElementById("btn-refresh").addEventListener("click", loadAll);
+loadAll();
+</script>
+{% endblock %}

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вход — BAAZ TMS</title>
+  <style>
+    :root {
+      --baaz-blue: #003366;
+      --baaz-blue-light: #004d99;
+      --baaz-accent: #c8102e;
+      --baaz-gray: #eef1f5;
+      --baaz-border: #c8d0da;
+      --baaz-text: #1a1a2e;
+      --baaz-muted: #5c6b7a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--baaz-gray);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-wrapper {
+      width: 100%;
+      max-width: 420px;
+      padding: 1rem;
+    }
+    .login-header {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+    .login-logo {
+      width: 72px;
+      height: 72px;
+      background: var(--baaz-blue);
+      color: #fff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 1.1rem;
+      margin: 0 auto 1rem;
+      box-shadow: 0 4px 12px rgba(0,51,102,.25);
+    }
+    .login-header h1 {
+      font-size: 1.25rem;
+      color: var(--baaz-blue);
+      margin-bottom: .35rem;
+    }
+    .login-header p {
+      font-size: .85rem;
+      color: var(--baaz-muted);
+    }
+    .login-card {
+      background: #fff;
+      border: 1px solid var(--baaz-border);
+      border-radius: 8px;
+      padding: 2rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,.08);
+    }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label {
+      display: block;
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--baaz-text);
+      margin-bottom: .4rem;
+    }
+    .form-group input {
+      width: 100%;
+      padding: .65rem .85rem;
+      border: 1px solid var(--baaz-border);
+      border-radius: 4px;
+      font-size: .95rem;
+      transition: border-color .15s;
+    }
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--baaz-blue-light);
+      box-shadow: 0 0 0 3px rgba(0,77,153,.12);
+    }
+    .btn-login {
+      width: 100%;
+      padding: .75rem;
+      background: linear-gradient(135deg, var(--baaz-blue) 0%, var(--baaz-blue-light) 100%);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: .02em;
+    }
+    .btn-login:hover { opacity: .92; }
+    .error-msg {
+      background: #fde8ea;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+      padding: .65rem .85rem;
+      border-radius: 4px;
+      font-size: .85rem;
+      margin-bottom: 1rem;
+    }
+    .login-footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: .75rem;
+      color: var(--baaz-muted);
+    }
+    .accent-line {
+      height: 3px;
+      background: var(--baaz-accent);
+      border-radius: 8px 8px 0 0;
+      margin: -2rem -2rem 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-header">
+      <div class="login-logo">БААЗ</div>
+      <h1>ОАО «БААЗ»</h1>
+      <p>АИС TMS — Tool Management System</p>
+    </div>
+
+    <div class="login-card">
+      <div class="accent-line"></div>
+
+      {% if error %}
+      <div class="error-msg">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/api/v1/auth/login">
+        <div class="form-group">
+          <label for="username">Логин</label>
+          <input type="text" id="username" name="username" required
+                 autocomplete="username" placeholder="Введите логин" autofocus>
+        </div>
+        <div class="form-group">
+          <label for="password">Пароль</label>
+          <input type="password" id="password" name="password" required
+                 autocomplete="current-password" placeholder="Введите пароль">
+        </div>
+        <button type="submit" class="btn-login">Войти в систему</button>
+      </form>
+    </div>
+
+    <div class="login-footer">
+      &copy; ОАО «БААЗ» — Автоматизированная информационная система учёта инструмента
+    </div>
+  </div>
+</body>
+</html>
