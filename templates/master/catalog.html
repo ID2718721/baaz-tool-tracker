@@ -54,7 +54,7 @@
     </thead>
     <tbody>
       {% for tt in tool_types %}
-      {% set cat = tt.get("tms_tool_categories") or {} %}
+      {% set cat = tt.get("tool_categories") or {} %}
       <tr data-type='{{ {"id": tt.id|string, "model_name": tt.model_name, "category_id": (tt.category_id|string if tt.category_id else ""), "min_stock": tt.min_stock}|tojson }}'>
         <td>{{ tt.model_name }}</td>
         <td>{{ cat.name or "—" }}</td>

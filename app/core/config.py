@@ -40,6 +40,12 @@ class Settings(BaseSettings):
 
     tms_integration_secret: str = ""
 
+    cmms_integration_mode: str = "mock"
+    cmms_supabase_url: str = "http://127.0.0.1:54321"
+    cmms_supabase_key: str = ""
+    cmms_integration_secret: str = ""
+    cmms_functions_url: str = "http://127.0.0.1:54321/functions/v1"
+
     jwt_secret_key: str = "change-me-in-production-use-long-random-string"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 480

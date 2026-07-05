@@ -1,0 +1,15 @@
+# Supabase
+.branches
+.temp
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local
+
+# SQL скрипты из Supabase Studio
+snippets/
+
+# SQL схема базы данных
+# Генерируется командой: `supabase db dump --linked/local --schema public -f supabase/schema.sql`
+schema.sql

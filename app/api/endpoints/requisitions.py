@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -10,14 +10,15 @@ from supabase import Client
 
 from app.api.deps import require_clerk_only
 from app.core.db_utils import execute_supabase, first_row
+from app.core.requisition_status import derive_requisition_status
 from app.core.supabase import get_supabase_client
 from app.models.schemas import CurrentUser, TMSBaseModel, ToolStatus, UserRole
 
 router = APIRouter(prefix="/requisitions", tags=["requisitions"])
 
-TABLE_REQUISITIONS = "tms_requisitions"
-TABLE_REQUISITION_LINES = "tms_requisition_lines"
-TABLE_TOOLS = "tms_tools"
+TABLE_REQUISITIONS = "requisitions"
+TABLE_REQUISITION_LINES = "requisition_lines"
+TABLE_TOOLS = "tools"
 
 RETURN_RESULT_STATUSES = frozenset(
     {ToolStatus.AVAILABLE.value, ToolStatus.MAINTENANCE.value, ToolStatus.SCRAPPED.value}
@@ -37,7 +38,7 @@ def _fetch_line(supabase: Client, line_id: UUID) -> dict[str, Any]:
     """Загружает строку заявки с данными родительской заявки."""
     response = execute_supabase(
         lambda: supabase.table(TABLE_REQUISITION_LINES)
-        .select("id, requisition_id, line_client_id, catalog_item_id, tool_id, status, condition_on_return, tms_requisitions(id, warehouse_id, status)")
+        .select("id, requisition_id, line_client_id, catalog_item_id, tool_id, status, condition_on_return, requisitions(id, warehouse_id, status)")
         .eq("id", str(line_id))
         .execute()
     )
@@ -67,30 +68,33 @@ def _check_warehouse_access(current_user: CurrentUser, warehouse_id: str | None)
 
 def _sync_requisition_status(supabase: Client, requisition_id: str) -> None:
     """Пересчитывает статус заявки по статусам строк."""
+    req_resp = execute_supabase(
+        lambda: supabase.table(TABLE_REQUISITIONS)
+        .select("cancelled_at")
+        .eq("id", requisition_id)
+        .execute()
+    )
+    req_row = first_row(req_resp, detail="Заявка не найдена")
+    if req_row.get("cancelled_at"):
+        execute_supabase(
+            lambda: supabase.table(TABLE_REQUISITIONS)
+            .update({"status": "cancelled"})
+            .eq("id", requisition_id)
+            .execute()
+        )
+        return
+
     lines_resp = execute_supabase(
         lambda: supabase.table(TABLE_REQUISITION_LINES)
         .select("status")
         .eq("requisition_id", requisition_id)
         .execute()
     )
-    statuses = [row["status"] for row in lines_resp.data or []]
-    if not statuses:
+    lines = lines_resp.data or []
+    if not lines:
         return
 
-    if all(s == "returned" for s in statuses):
-        new_status = "returned"
-    elif all(s == "issued" for s in statuses):
-        new_status = "issued"
-    elif all(s in ("reserved", "issued", "returned") for s in statuses) and any(
-        s == "reserved" for s in statuses
-    ):
-        new_status = "partially_reserved"
-    elif all(s == "reserved" for s in statuses):
-        new_status = "ready_for_issue"
-    elif any(s == "reserved" for s in statuses):
-        new_status = "partially_reserved"
-    else:
-        new_status = "new"
+    new_status = derive_requisition_status(lines, req_row.get("cancelled_at"))
 
     execute_supabase(
         lambda: supabase.table(TABLE_REQUISITIONS)
@@ -109,7 +113,7 @@ def reserve_line(
 ) -> dict[str, str | bool]:
     """Подбор конкретного экземпляра инструмента для строки заявки."""
     line = _fetch_line(supabase, line_id)
-    requisition = line.get("tms_requisitions") or {}
+    requisition = line.get("requisitions") or {}
 
     if line.get("status") != "pending":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Строка уже обработана")
@@ -216,7 +220,7 @@ def return_line(
 ) -> dict[str, str | bool]:
     """Приём возврата с фиксацией технического состояния."""
     line = _fetch_line(supabase, line_id)
-    requisition = line.get("tms_requisitions") or {}
+    requisition = line.get("requisitions") or {}
 
     if line.get("status") != "issued":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Строка не выдана")
@@ -265,3 +269,60 @@ def return_line(
     _sync_requisition_status(supabase, str(line["requisition_id"]))
 
     return {"ok": True, "detail": "Возврат оформлен"}
+
+
+class CancelRequisitionRequest(TMSBaseModel):
+    cancel_reason: str = "out_of_stock"
+    cancel_reason_text: str | None = None
+
+
+@router.post("/{requisition_id}/cancel")
+def cancel_requisition(
+    requisition_id: UUID,
+    payload: CancelRequisitionRequest,
+    supabase: Annotated[Client, Depends(get_supabase_client)],
+    current_user: Annotated[CurrentUser, Depends(require_clerk_only)],
+) -> dict[str, str | bool]:
+    """Отмена заявки кладовщиком (ISS-UC-6b)."""
+    req_resp = execute_supabase(
+        lambda: supabase.table(TABLE_REQUISITIONS)
+        .select("id, warehouse_id, status, cancelled_at, requisition_lines(status)")
+        .eq("id", str(requisition_id))
+        .execute()
+    )
+    requisition = first_row(req_resp, detail="Заявка не найдена")
+    _check_warehouse_access(current_user, requisition.get("warehouse_id"))
+
+    if requisition.get("cancelled_at"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Заявка уже отменена")
+
+    lines = requisition.get("requisition_lines") or []
+    if any(line.get("status") in ("issued", "returned") for line in lines):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя отменить выданную заявку")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    execute_supabase(
+        lambda: supabase.table(TABLE_REQUISITIONS)
+        .update(
+            {
+                "status": "cancelled",
+                "cancelled_at": now_iso,
+                "cancel_reason": payload.cancel_reason,
+            }
+        )
+        .eq("id", str(requisition_id))
+        .execute()
+    )
+    execute_supabase(
+        lambda: supabase.table("cmms_work_order_links")
+        .update(
+            {
+                "cancelled_by": "storekeeper",
+                "cancel_reason_text": payload.cancel_reason_text or payload.cancel_reason,
+                "cmms_work_order_status": "cancelled",
+            }
+        )
+        .eq("requisition_id", str(requisition_id))
+        .execute()
+    )
+    return {"ok": True, "detail": "Заявка отменена"}

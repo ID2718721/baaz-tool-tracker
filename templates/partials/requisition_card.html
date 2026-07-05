@@ -1,23 +1,24 @@
 <div class="req-card" data-req-id="{{ req.id }}">
+  {% set cmms_link = req.get("cmms_work_order_links") or {} %}
   <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem;">
     <div>
-      <strong style="font-size:.95rem;">Заявка {{ req.id[:8] }}…</strong>
-      {% if req.external_order_id %}
-      <span class="hint"> · CMMS: {{ req.external_order_id[:8] }}…</span>
+      <strong style="font-size:.95rem;">Заявка {{ (req.id or "")[:8] }}…</strong>
+      {% if cmms_link %}
+      <span class="hint"> · CMMS: {{ (cmms_link.get("cmms_work_order_number") or req.client_reference_id or "")[:8] }}…</span>
       {% else %}
       <span class="hint"> · Внутренняя</span>
       {% endif %}
     </div>
-    <span class="status status-{{ req.status or 'new' }}">{{ req.status or 'new' }}</span>
+    <span class="status status-{{ req.status or 'new' }}">{{ (req.status or 'new') | requisition_status_label }}</span>
   </div>
   <div class="req-meta">
-    <span>Склад: {{ (req.get("tms_warehouses") or {}).get("name", "—") }}</span>
-    <span>Исполнитель: {{ req.technician_name or "—" }}</span>
-    <span>Создана: {{ req.created_at[:16].replace("T", " ") if req.created_at else "—" }}</span>
+    <span>Склад: {{ (req.get("warehouses") or {}).get("name", "—") }}</span>
+    <span>Исполнитель: {{ cmms_link.get("technician_name") or "—" }}</span>
+    <span>Создана: {{ (req.created_at or "")[:16].replace("T", " ") if req.created_at else "—" }}</span>
     {% if req.cancelled_at %}<span>Отменена: {{ req.cancel_reason or "—" }}</span>{% endif %}
   </div>
 
-  {% set lines = req.get("tms_requisition_lines") or [] %}
+  {% set lines = req.get("requisition_lines") or [] %}
   {% if lines %}
   <table class="lines-table">
     <thead>
@@ -30,16 +31,16 @@
     </thead>
     <tbody>
       {% for line in lines %}
-      {% set tool = line.get("tms_tools") or {} %}
-      {% set tt = line.get("tms_tool_types") or {} %}
+      {% set tool = line.get("tools") or {} %}
+      {% set tt = line.get("tool_types") or {} %}
       <tr>
-        <td>{{ tt.model_name or "—" }}</td>
+        <td>{{ tt.get("model_name") or "—" }}</td>
         <td>
           {% if tool %}
-            {{ tool.inventory_number or "—" }} / {{ tool.serial_number or "—" }}
+            {{ tool.get("inventory_number") or "—" }} / {{ tool.get("serial_number") or "—" }}
           {% else %}—{% endif %}
         </td>
-        <td><span class="status status-{{ line.status }}">{{ line.status }}</span></td>
+        <td><span class="status status-{{ line.status }}">{{ line.status | requisition_line_status_label }}</span></td>
         <td>
           {% if is_clerk or is_admin %}
           {% if line.status == 'pending' %}
@@ -47,7 +48,7 @@
                   data-line-id="{{ line.id }}"
                   data-warehouse-id="{{ req.warehouse_id }}"
                   data-catalog-id="{{ line.catalog_item_id or '' }}"
-                  data-hint="Выберите экземпляр для номенклатуры: {{ tt.model_name or '—' }}">
+                  data-hint="Выберите экземпляр для номенклатуры: {{ tt.get('model_name') or '—' }}">
             Подобрать
           </button>
           {% elif line.status == 'issued' %}

@@ -1,0 +1,17 @@
+[
+  {
+    "inventory_id": "d1000000-0000-4000-8000-000000000001",
+    "inventory_kind": "tool",
+    "request_id": "b2220000-0000-4000-8000-000000000301",
+    "request_number": "З-TMS-DEMO-001",
+    "work_report_id": "c3330000-0000-4000-8000-000000000401",
+    "work_performed": "Поверка микрометра, калибровка шкалы",
+    "actual_duration_hours": 1.5,
+    "maintenance_type": null,
+    "repair_department_name": "ИНСТ",
+    "technician_full_name": "Иванов И.И.",
+    "defects_found": "",
+    "notes": "Демо отчёт (mock fixture)",
+    "created_at": "2026-07-02T14:00:00+00:00"
+  }
+]

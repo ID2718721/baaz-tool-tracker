@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Заявка ТОиР — {{ cmms_link.cmms_request_number or tool.inventory_number or tool.id }} — BAAZ TMS{% endblock %}
+
+{% block content %}
+{% set status_labels = {
+  "new": "Новая",
+  "accepted": "Принята",
+  "in_progress": "В работе",
+  "completed": "Выполнена",
+  "closed": "Закрыта",
+  "cancelled": "Отменена"
+} %}
+{% set request_type_labels = {
+  "inspection": "Поверка",
+  "service": "Ремонт",
+  "repair": "Ремонт",
+  "maintenance": "ТО",
+  "calibration": "Поверка"
+} %}
+{% set tool_type = tool.get("tool_types") or {} %}
+{% set warehouse = tool.get("warehouses") or {} %}
+
+<div class="page-header">
+  <h1>Заявка ТОиР</h1>
+  <div class="page-header-actions">
+    <a class="btn btn-secondary" href="/inventory">← К инвентарю</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="section-title">Инструмент</h2>
+  <dl class="detail-grid">
+    <dt>Инв. номер</dt>
+    <dd>{{ tool.inventory_number or "—" }}</dd>
+    <dt>Серийный номер</dt>
+    <dd>{{ tool.serial_number or "—" }}</dd>
+    <dt>Тип</dt>
+    <dd>{{ tool_type.model_name or "—" }}</dd>
+    <dt>Склад</dt>
+    <dd>{{ warehouse.name or "—" }}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2 class="section-title">Связь с ТОиР</h2>
+  <dl class="detail-grid">
+    <dt>Номер заявки</dt>
+    <dd><strong>{{ cmms_link.cmms_request_number or "—" }}</strong></dd>
+    <dt>ID заявки CMMS</dt>
+    <dd><code>{{ cmms_link.cmms_request_id }}</code></dd>
+    <dt>Client reference</dt>
+    <dd><code>{{ cmms_link.client_reference_id }}</code></dd>
+    <dt>Режим интеграции</dt>
+    <dd>{{ integration_mode }}</dd>
+  </dl>
+</div>
+
+{% if cmms_error %}
+<div class="alert alert-error">{{ cmms_error }}</div>
+{% endif %}
+
+<div class="card">
+  <h2 class="section-title">Данные из ТОиР</h2>
+  {% if cmms_request %}
+  <dl class="detail-grid">
+    <dt>Статус</dt>
+    <dd><span class="status status-{{ cmms_request.status }}">{{ status_labels.get(cmms_request.status, cmms_request.status) }}</span></dd>
+    <dt>Тип</dt>
+    <dd>{{ request_type_labels.get(cmms_request.type, cmms_request.type or "—") }}</dd>
+    <dt>Тема</dt>
+    <dd>{{ cmms_request.title or "—" }}</dd>
+    <dt>Описание</dt>
+    <dd>{{ cmms_request.description or "—" }}</dd>
+    <dt>Приоритет</dt>
+    <dd>{{ cmms_request.priority or "—" }}</dd>
+    <dt>Заявитель</dt>
+    <dd>{{ cmms_request.requester_name or "—" }}</dd>
+    <dt>Создана</dt>
+    <dd>{{ (cmms_request.created_at or "")[:16].replace("T", " ") or "—" }}</dd>
+    <dt>Обновлена</dt>
+    <dd>{{ (cmms_request.updated_at or "")[:16].replace("T", " ") or "—" }}</dd>
+  </dl>
+  {% else %}
+  <div class="empty-state">Актуальные данные заявки из ТОиР недоступны{% if not cmms_error %} (заявка не найдена в представлении integration.v_inventory_requests){% endif %}.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="section-title">Отчёты о работах</h2>
+  {% if work_reports %}
+  <table>
+    <thead>
+      <tr>
+        <th>Дата</th>
+        <th>Отдел</th>
+        <th>Исполнитель</th>
+        <th>Выполненные работы</th>
+        <th>Часы</th>
+        <th>Тип ТО</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for wr in work_reports %}
+      <tr>
+        <td>{{ (wr.created_at or "")[:16].replace("T", " ") or "—" }}</td>
+        <td>{{ wr.repair_department_name or "—" }}</td>
+        <td>{{ wr.technician_full_name or "—" }}</td>
+        <td>{{ wr.work_performed or "—" }}</td>
+        <td>{{ wr.actual_duration_hours if wr.actual_duration_hours is not none else "—" }}</td>
+        <td>{{ wr.maintenance_type or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">Отчёты о работах пока отсутствуют</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .section-title { font-size: 1.05rem; margin-bottom: 1rem; }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) 1fr;
+    gap: .65rem 1.25rem;
+  }
+  .detail-grid dt { color: var(--baaz-muted); font-weight: 600; }
+  .detail-grid dd { margin: 0; }
+  .detail-grid code { font-size: .85rem; word-break: break-all; }
+  .alert-error {
+    background: #f8d7da;
+    color: #842029;
+    border: 1px solid #f5c2c7;
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    margin-bottom: 1rem;
+  }
+</style>
+{% endblock %}

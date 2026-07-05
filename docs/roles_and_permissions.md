@@ -19,6 +19,8 @@
 | Excel: остатки склада | ❌** | ✅ | ✅ (свой склад) |
 | Excel: списания | ✅ | ✅ | ✅ |
 | Word: акт списания | 👁 (скачать) | 👁 | 👁 (для списанных) |
+| Отправить инструмент в ТОиР (контур А) | ❌ | ✅ | ✅ (свой склад) |
+| Просмотр «Заявка ТОиР» | 👁 | 👁 | 👁 (свой склад) |
 
 \* Master создаёт/редактирует/удаляет инструменты; удаление — только master.  
 \** Admin видит инвентарь, но кнопка Excel на UI доступна кладовщику при одном складе.
@@ -59,6 +61,7 @@
 | POST/PUT/DELETE | `/api/v1/master/categories` | Категории инструмента |
 | POST/PUT/DELETE | `/api/v1/master/tool-types` | Типы инструмента |
 | GET/POST/PUT | `/api/v1/tools` | CRUD инструментов |
+| POST | `/api/v1/tools/{id}/send-to-cmms` | Отправка инструмента в ТОиР |
 | DELETE | `/api/v1/tools/{id}` | Удаление инструмента |
 | GET | `/api/v1/analytics/*` | Аналитика |
 | GET | `/api/v1/reports/export/*` | Excel/Word |
@@ -79,6 +82,7 @@
 | GET/POST/PUT | `/api/v1/tools` | Инструменты своего склада |
 | POST | `/api/v1/tools/internal/issue` | Внутренняя выдача сотруднику |
 | POST | `/api/v1/tools/internal/return` | Приём возврата |
+| POST | `/api/v1/tools/{id}/send-to-cmms` | Отправка инструмента в ТОиР (свой склад) |
 | POST | `/api/v1/requisitions/lines/{id}/reserve` | Резерв под CMMS-заявку |
 | POST | `/api/v1/requisitions/{id}/issue` | Выдача комплекта |
 | POST | `/api/v1/requisitions/lines/{id}/return` | Возврат по строке |
@@ -117,4 +121,5 @@
 | `can_edit_tools` | false | true | true |
 | `can_delete_tools` | false | true | false |
 | `can_add_tools` | false | true | true |
+| `can_send_to_cmms` | false | true | true |
 | `read_only` (inventory) | true | false | false |

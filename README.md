@@ -69,7 +69,7 @@ python create_hash.py
 # Вставьте полученный hash в tms_users для login = admin
 ```
 
-Тестовый вход: **admin** / **admin123** (после настройки hash в БД).
+Демо-учётки после `supabase db reset` (см. `docs/database.md`): **admin**/**clerk**/**master**, пароль `{login}123`. Пересоздать хэши: `python create_hash.py`.
 
 ### 4. Запуск
 

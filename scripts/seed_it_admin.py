@@ -14,7 +14,7 @@ def main() -> None:
     supabase = get_supabase_client()
 
     loc_resp = (
-        supabase.table("tms_locations")
+        supabase.table("locations")
         .select("id")
         .eq("name", "Отдел ИТ")
         .limit(1)
@@ -24,12 +24,12 @@ def main() -> None:
         location_id = loc_resp.data[0]["id"]
         print(f"Локация «Отдел ИТ» уже есть: {location_id}")
     else:
-        ins = supabase.table("tms_locations").insert({"name": "Отдел ИТ"}).select("id").execute()
+        ins = supabase.table("locations").insert({"name": "Отдел ИТ"}).select("id").execute()
         location_id = ins.data[0]["id"]
         print(f"Создана локация «Отдел ИТ»: {location_id}")
 
     emp_resp = (
-        supabase.table("tms_employees")
+        supabase.table("employees")
         .select("id, full_name")
         .eq("badge_number", "0001")
         .limit(1)
@@ -40,7 +40,7 @@ def main() -> None:
         print(f"Сотрудник 0001 уже есть: {emp_resp.data[0]['full_name']} ({employee_id})")
     else:
         ins = (
-            supabase.table("tms_employees")
+            supabase.table("employees")
             .insert(
                 {
                     "badge_number": "0001",
@@ -56,7 +56,7 @@ def main() -> None:
         print(f"Создан сотрудник Васильев А.И.: {employee_id}")
 
     admin_resp = (
-        supabase.table("tms_users")
+        supabase.table("users")
         .select("id, login, employee_id")
         .eq("login", "admin")
         .limit(1)
@@ -67,7 +67,7 @@ def main() -> None:
         return
 
     admin = admin_resp.data[0]
-    supabase.table("tms_users").update({"employee_id": employee_id}).eq("id", admin["id"]).execute()
+    supabase.table("users").update({"employee_id": employee_id}).eq("id", admin["id"]).execute()
     print(f"Пользователь admin привязан к employee_id={employee_id}")
 
 

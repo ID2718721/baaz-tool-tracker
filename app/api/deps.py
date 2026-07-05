@@ -17,8 +17,8 @@ from app.core.security import decode_access_token
 from app.core.supabase import get_supabase_client
 from app.models.schemas import CurrentUser, UserRole
 
-TABLE_USERS = "tms_users"
-TABLE_EMPLOYEES = "tms_employees"
+TABLE_USERS = "users"
+TABLE_EMPLOYEES = "employees"
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -50,7 +50,7 @@ def _load_user_row(supabase: Client, user_id: UUID) -> dict[str, Any] | None:
     try:
         response = execute_supabase(
             lambda: supabase.table(TABLE_USERS)
-            .select("id, employee_id, warehouse_id, login, role, tms_employees(full_name)")
+            .select("id, employee_id, warehouse_id, login, role, employees(full_name)")
             .eq("id", str(user_id))
             .limit(1)
             .execute()
@@ -73,7 +73,7 @@ def _load_user_row(supabase: Client, user_id: UUID) -> dict[str, Any] | None:
 
 def _row_to_current_user(row: dict[str, Any]) -> CurrentUser:
     """Преобразует строку БД в модель CurrentUser."""
-    employee = row.get("tms_employees") or {}
+    employee = row.get("employees") or {}
     return CurrentUser(
         id=UUID(str(row["id"])),
         login=row["login"],
@@ -175,6 +175,8 @@ require_clerk_only = require_roles(UserRole.CLERK)
 
 # Комбинированные (операционные)
 require_clerk_or_master = require_roles(UserRole.CLERK, UserRole.MASTER)
+require_send_to_cmms = require_clerk_or_master
+require_view_cmms_repair = require_roles(UserRole.CLERK, UserRole.MASTER, UserRole.ADMIN)
 require_master_or_admin = require_roles(UserRole.MASTER, UserRole.ADMIN)
 require_report_access = require_roles(UserRole.MASTER, UserRole.CLERK, UserRole.ADMIN)
 require_authenticated = get_current_user

@@ -28,6 +28,13 @@ class ToolStatus(StrEnum):
     IN_USE = "in_use"
     MAINTENANCE = "maintenance"
     SCRAPPED = "scrapped"
+    PENDING_REPAIR = "pending_repair"
+    PENDING_RETURN = "pending_return"
+
+
+class InventoryHandoffMode(StrEnum):
+    PICKUP_AT_WAREHOUSE = "pickup_at_warehouse"
+    DELIVER_TO_DEPARTMENT = "deliver_to_department"
 
 
 class UserRole(StrEnum):
@@ -97,7 +104,7 @@ class IntegrationSchemaVersion(TMSBaseModel):
 
 
 # ---------------------------------------------------------------------------
-# tms_locations
+# locations
 # ---------------------------------------------------------------------------
 
 
@@ -118,7 +125,7 @@ class LocationRead(LocationBase):
 
 
 # ---------------------------------------------------------------------------
-# tms_warehouses
+# warehouses
 # ---------------------------------------------------------------------------
 
 
@@ -143,12 +150,12 @@ class WarehouseRead(WarehouseBase):
 class WarehouseSummary(TMSBaseModel):
     """Краткое представление склада для интеграции ISS-API-3."""
 
-    id: UUID
+    warehouse_id: UUID
     name: str
 
 
 # ---------------------------------------------------------------------------
-# tms_employees
+# employees
 # ---------------------------------------------------------------------------
 
 
@@ -182,7 +189,7 @@ class EmployeeRead(EmployeeBase):
 
 
 # ---------------------------------------------------------------------------
-# tms_tool_categories
+# tool_categories
 # ---------------------------------------------------------------------------
 
 
@@ -203,7 +210,7 @@ class ToolCategoryRead(ToolCategoryBase):
 
 
 # ---------------------------------------------------------------------------
-# tms_tool_types
+# tool_types
 # ---------------------------------------------------------------------------
 
 
@@ -226,7 +233,7 @@ class ToolTypeRead(ToolTypeBase):
 
 
 # ---------------------------------------------------------------------------
-# tms_catalog_items (номенклатура склада, контур Б)
+# catalog_items (номенклатура склада, контур Б)
 # ---------------------------------------------------------------------------
 
 
@@ -249,14 +256,17 @@ class CatalogItemRead(CatalogItemBase):
     id: UUID
 
 
-class CatalogItemAvailability(CatalogItemRead):
-    """Позиция каталога с доступным остатком (ISS-API-4)."""
+class CatalogItemAvailability(TMSBaseModel):
+    """Позиция каталога с остатками (ISS-API-4)."""
 
+    catalog_item_id: UUID
+    name: str
     quantity_available: int = Field(ge=0)
+    quantity_total: int = Field(ge=0)
 
 
 # ---------------------------------------------------------------------------
-# tms_tools
+# tools
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +278,6 @@ class ToolBase(TMSBaseModel):
     status: ToolStatus = ToolStatus.AVAILABLE
     wear_count: int = Field(default=0, ge=0)
     last_check: date | None = None
-    next_check_date: date | None = None
 
 
 class ToolCreate(ToolBase):
@@ -283,7 +292,6 @@ class ToolUpdate(TMSBaseModel):
     status: ToolStatus | None = None
     wear_count: int | None = Field(default=None, ge=0)
     last_check: date | None = None
-    next_check_date: date | None = None
 
 
 class ToolRead(ToolBase):
@@ -292,7 +300,7 @@ class ToolRead(ToolBase):
 
 
 # ---------------------------------------------------------------------------
-# tms_users
+# users
 # ---------------------------------------------------------------------------
 
 
@@ -344,7 +352,7 @@ class LoginResponse(TMSBaseModel):
 
 
 # ---------------------------------------------------------------------------
-# tms_issuance_log
+# issuance_log
 # ---------------------------------------------------------------------------
 
 
@@ -374,7 +382,7 @@ class IssuanceLogRead(IssuanceLogBase):
 
 
 # ---------------------------------------------------------------------------
-# tms_requisitions / tms_requisition_lines (контур Б)
+# requisitions / requisition_lines (контур Б)
 # ---------------------------------------------------------------------------
 
 
@@ -490,6 +498,9 @@ class RepairRequestCreate(IntegrationSchemaVersion):
     request_type: RepairRequestType
     title: str = Field(min_length=1)
     description: str | None = None
+    target_repair_department_id: UUID
+    inventory_handoff_mode: InventoryHandoffMode = InventoryHandoffMode.DELIVER_TO_DEPARTMENT
+    inventory_warehouse_name: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -505,6 +516,16 @@ class RepairRequestResponse(TMSBaseModel):
     request_number: str
     status: str
     created_at: datetime
+
+
+class CmmsRepairDepartmentItem(TMSBaseModel):
+    repair_department_id: UUID
+    name: str
+    code: str | None = None
+
+
+class CmmsRepairDepartmentListResponse(TMSBaseModel):
+    departments: list[CmmsRepairDepartmentItem] = Field(default_factory=list)
 
 
 class ToolRepairRequestHistory(TMSBaseModel):
@@ -523,6 +544,50 @@ class ToolWorkReport(TMSBaseModel):
     work_performed: str
     actual_duration_hours: float = Field(ge=0)
     created_at: datetime
+
+
+class CmmsRepairLinkSnapshot(TMSBaseModel):
+    cmms_request_id: UUID
+    cmms_request_number: str | None = None
+    client_reference_id: UUID | None = None
+
+
+class CmmsInventoryRequestDetail(TMSBaseModel):
+    request_id: UUID
+    request_number: str
+    inventory_id: UUID
+    status: str
+    title: str | None = None
+    description: str | None = None
+    type: str | None = None
+    priority: str | None = None
+    repair_zone: str | None = None
+    requester_name: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CmmsInventoryWorkReport(TMSBaseModel):
+    work_report_id: UUID
+    request_id: UUID
+    request_number: str | None = None
+    work_performed: str
+    actual_duration_hours: float | None = Field(default=None, ge=0)
+    maintenance_type: str | None = None
+    repair_department_name: str | None = None
+    technician_full_name: str | None = None
+    defects_found: str | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class ToolCmmsRepairDetailResponse(TMSBaseModel):
+    tool_id: UUID
+    tool_label: str
+    link: CmmsRepairLinkSnapshot
+    request: CmmsInventoryRequestDetail | None = None
+    work_reports: list[CmmsInventoryWorkReport] = Field(default_factory=list)
+    cmms_fetch_error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -618,6 +683,8 @@ class RepairRequestStatusWebhook(IntegrationSchemaVersion):
     request_id: UUID
     request_number: str
     tool_id: UUID
+    inventory_id: UUID | None = None
+    inventory_kind: Literal["tool"] | None = "tool"
     previous_status: str
     new_status: str
     changed_at: datetime
@@ -628,7 +695,7 @@ class WebhookAckResponse(TMSBaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Внутренняя выдача / возврат (tms_requisitions + tms_requisition_lines)
+# Внутренняя выдача / возврат (requisitions + requisition_lines)
 # ---------------------------------------------------------------------------
 
 

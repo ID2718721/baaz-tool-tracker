@@ -15,9 +15,9 @@ from app.models.schemas import CurrentUser, TMSBaseModel, UserRole
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-TABLE_USERS = "tms_users"
-TABLE_LOCATIONS = "tms_locations"
-TABLE_WAREHOUSES = "tms_warehouses"
+TABLE_USERS = "users"
+TABLE_LOCATIONS = "locations"
+TABLE_WAREHOUSES = "warehouses"
 
 
 class AdminUserCreate(TMSBaseModel):
@@ -99,7 +99,7 @@ def _validate_clerk_warehouse(role: str, warehouse_id: UUID | None) -> None:
 
 
 def _fetch_user_by_login(supabase: Client, login: str) -> dict[str, Any] | None:
-    """Ищет пользователя tms_users по login."""
+    """Ищет пользователя users по login."""
     response = execute_supabase(
         lambda: supabase.table(TABLE_USERS)
         .select("id, login")
@@ -119,7 +119,7 @@ def list_users(
     """Список учётных записей с сотрудником и складом."""
     response = execute_supabase(
         lambda: supabase.table(TABLE_USERS)
-        .select("id, login, role, employee_id, warehouse_id, created_at, tms_employees(full_name), tms_warehouses(name)")
+        .select("id, login, role, employee_id, warehouse_id, created_at, employees(full_name), warehouses(name)")
         .order("login")
         .execute()
     )
@@ -302,7 +302,7 @@ def list_warehouses(
     """Список складов с привязкой к цеху."""
     response = execute_supabase(
         lambda: supabase.table(TABLE_WAREHOUSES)
-        .select("id, name, location_id, tms_locations(name)")
+        .select("id, name, location_id, locations(name)")
         .order("name")
         .execute()
     )

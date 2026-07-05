@@ -145,7 +145,7 @@ function initRequisitionActions() {
         filtered.forEach(t => {
           const opt = document.createElement("option");
           opt.value = t.id;
-          const tt = t.tms_tool_types || {};
+          const tt = t.tool_types || {};
           opt.textContent = (t.inventory_number || "—") + " / " + (t.serial_number || "—") + " — " + (tt.model_name || "");
           select.appendChild(opt);
         });

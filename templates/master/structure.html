@@ -51,7 +51,7 @@
     </thead>
     <tbody>
       {% for wh in warehouses %}
-      {% set loc = wh.get("tms_locations") or {} %}
+      {% set loc = wh.get("locations") or {} %}
       <tr data-warehouse='{{ {"id": wh.id|string, "name": wh.name, "location_id": (wh.location_id|string if wh.location_id else "")}|tojson }}'>
         <td>{{ wh.name }}</td>
         <td>{{ loc.name or "—" }}</td>

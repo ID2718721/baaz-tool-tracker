@@ -1,0 +1,34 @@
+{
+  "name": "baaz-tool-tracker",
+  "version": "1.0.0",
+  "description": "Веб-приложение для учёта, выдачи, возврата и аналитики инструмента на производстве. Разработано для ОАО «БААЗ» (г. Барановичи).",
+  "homepage": "https://github.com/ID2718721/baaz-tool-tracker#readme",
+  "bugs": {
+    "url": "https://github.com/ID2718721/baaz-tool-tracker/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ID2718721/baaz-tool-tracker.git"
+  },
+  "license": "ISC",
+  "author": "das",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1",
+    "setup": "python -m pip install -r requirements.txt",
+    "setup:venv": "python -m venv venv && pnpm setup",
+    "hash:admin": "python create_hash.py",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status",
+    "db:reset": "supabase db reset",
+    "db:reset:cloud": "supabase db reset --linked",
+    "db:push": "supabase db push",
+    "db:diff": "supabase db diff -f",
+    "db:dump": "supabase db dump --local --schema public -f supabase/schema.sql",
+    "db:dump:cloud": "supabase db dump --linked --schema public -f supabase/schema.sql"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

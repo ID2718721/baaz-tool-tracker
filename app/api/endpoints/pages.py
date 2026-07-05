@@ -16,6 +16,12 @@ from supabase import Client
 from app.api.deps import get_current_user, get_current_user_optional
 from app.core.db_utils import execute_supabase
 from app.core.helpers import normalize_join
+from app.core.requisition_status import derive_requisition_status
+from app.core.status_labels import (
+    requisition_line_status_label,
+    requisition_status_label,
+    tool_status_label,
+)
 from app.core.supabase import get_supabase_client
 from app.models.schemas import CurrentUser, UserRole
 
@@ -38,11 +44,15 @@ def _tojson_filter(value: Any) -> Markup:
 
 
 templates.env.filters["tojson"] = _tojson_filter
+templates.env.filters["requisition_status_label"] = requisition_status_label
+templates.env.filters["requisition_line_status_label"] = requisition_line_status_label
+templates.env.filters["tool_status_label"] = tool_status_label
 
-TABLE_TOOLS = "tms_tools"
-TABLE_REQUISITIONS = "tms_requisitions"
-TABLE_WAREHOUSES = "tms_warehouses"
-TABLE_TOOL_TYPES = "tms_tool_types"
+TABLE_TOOLS = "tools"
+TABLE_REQUISITIONS = "requisitions"
+TABLE_WAREHOUSES = "warehouses"
+TABLE_TOOL_TYPES = "tool_types"
+TABLE_CMMS_REPAIR_LINKS = "cmms_repair_links"
 
 
 def _role_home(user: CurrentUser) -> str:
@@ -61,23 +71,24 @@ def _role_work_url(user: CurrentUser) -> str:
 
 def _load_admin_dashboard(supabase: Client) -> dict[str, Any]:
     """Загружает сводку для главной страницы администратора."""
-    users_resp = execute_supabase(lambda: supabase.table("tms_users").select("id", count="exact").execute())
+    users_resp = execute_supabase(lambda: supabase.table("users").select("id", count="exact").execute())
     wh_resp = execute_supabase(lambda: supabase.table(TABLE_WAREHOUSES).select("id", count="exact").execute())
     req_resp = execute_supabase(
         lambda: supabase.table(TABLE_REQUISITIONS)
-        .select("id, status, created_at, technician_name, tms_warehouses(name)")
+        .select("id, status, created_at, warehouses(name), cmms_work_order_links(technician_name)")
         .order("created_at", desc=True)
         .limit(10)
         .execute()
     )
     activity: list[dict[str, str]] = []
     for req in req_resp.data or []:
-        wh = normalize_join(req.get("tms_warehouses"))
+        wh = normalize_join(req.get("warehouses"))
+        link = normalize_join(req.get("cmms_work_order_links"))
         created = str(req.get("created_at") or "")[:16].replace("T", " ")
         activity.append(
             {
                 "time": created or "—",
-                "text": f"Заявка {req.get('status', '—')} · {req.get('technician_name') or '—'} · {wh.get('name') or '—'}",
+                "text": f"Заявка {requisition_status_label(req.get('status'))} · {link.get('technician_name') or '—'} · {wh.get('name') or '—'}",
             }
         )
     return {
@@ -92,7 +103,7 @@ def _load_clerk_dashboard(supabase: Client, user: CurrentUser) -> dict[str, Any]
     today = date.today().isoformat()
     wh_filter = str(user.warehouse_id) if user.warehouse_id else None
 
-    req_query = supabase.table(TABLE_REQUISITIONS).select("id, status, external_order_id, created_at")
+    req_query = supabase.table(TABLE_REQUISITIONS).select("id, status, created_at, cmms_work_order_links(requisition_id)")
     if wh_filter:
         req_query = req_query.eq("warehouse_id", wh_filter)
     reqs = execute_supabase(lambda: req_query.execute()).data or []
@@ -103,7 +114,8 @@ def _load_clerk_dashboard(supabase: Client, user: CurrentUser) -> dict[str, Any]
     cmms_pending = sum(
         1
         for r in reqs
-        if r.get("external_order_id") and r.get("status") not in {"returned", "cancelled"}
+        if normalize_join(r.get("cmms_work_order_links"))
+        and r.get("status") not in {"returned", "cancelled"}
     )
 
     tools_query = supabase.table(TABLE_TOOLS).select("id", count="exact").eq("status", "in_use")
@@ -121,6 +133,7 @@ def _load_clerk_dashboard(supabase: Client, user: CurrentUser) -> dict[str, Any]
 def _page_context(user: CurrentUser, **extra: Any) -> dict[str, Any]:
     """Формирует базовый контекст шаблона с флагами прав доступа."""
     can_edit = user.role in {UserRole.CLERK.value, UserRole.MASTER.value}
+    can_send_to_cmms = user.role in {UserRole.CLERK.value, UserRole.MASTER.value}
     return {
         "user": user,
         "is_admin": user.role == UserRole.ADMIN.value,
@@ -129,6 +142,7 @@ def _page_context(user: CurrentUser, **extra: Any) -> dict[str, Any]:
         "can_edit_tools": can_edit,
         "can_delete_tools": user.role == UserRole.MASTER.value,
         "can_add_tools": can_edit,
+        "can_send_to_cmms": can_send_to_cmms,
         **extra,
     }
 
@@ -143,7 +157,7 @@ def _load_warehouses(supabase: Client, user: CurrentUser) -> list[dict[str, Any]
     """Загружает склады; для кладовщика — только его склад."""
     query = (
         supabase.table(TABLE_WAREHOUSES)
-        .select("id, name, location_id, tms_locations(name)")
+        .select("id, name, location_id, locations(name)")
         .order("name")
     )
     if user.role == UserRole.CLERK.value and user.warehouse_id:
@@ -156,7 +170,7 @@ def _load_tool_types(supabase: Client) -> list[dict[str, Any]]:
     """Загружает типы инструментов с категориями."""
     response = execute_supabase(
         lambda: supabase.table(TABLE_TOOL_TYPES)
-        .select("id, model_name, min_stock, category_id, tms_tool_categories(id, name)")
+        .select("id, model_name, min_stock, category_id, tool_categories(id, name)")
         .order("model_name")
         .execute()
     )
@@ -166,7 +180,7 @@ def _load_tool_types(supabase: Client) -> list[dict[str, Any]]:
 def _load_categories(supabase: Client) -> list[dict[str, Any]]:
     """Загружает категории инструментов."""
     response = execute_supabase(
-        lambda: supabase.table("tms_tool_categories").select("id, name").order("name").execute()
+        lambda: supabase.table("tool_categories").select("id, name").order("name").execute()
     )
     return response.data or []
 
@@ -174,7 +188,7 @@ def _load_categories(supabase: Client) -> list[dict[str, Any]]:
 def _load_locations(supabase: Client) -> list[dict[str, Any]]:
     """Загружает локации (площадки)."""
     response = execute_supabase(
-        lambda: supabase.table("tms_locations").select("id, name").order("name").execute()
+        lambda: supabase.table("locations").select("id, name").order("name").execute()
     )
     return response.data or []
 
@@ -182,10 +196,10 @@ def _load_locations(supabase: Client) -> list[dict[str, Any]]:
 def _load_users(supabase: Client) -> list[dict[str, Any]]:
     """Загружает пользователей с данными сотрудников и складов."""
     response = execute_supabase(
-        lambda: supabase.table("tms_users")
+        lambda: supabase.table("users")
         .select(
             "id, login, role, employee_id, warehouse_id, created_at, "
-            "tms_employees(full_name, tms_locations(name)), tms_warehouses(name)"
+            "employees(full_name, locations(name)), warehouses(name)"
         )
         .order("login")
         .execute()
@@ -196,12 +210,28 @@ def _load_users(supabase: Client) -> list[dict[str, Any]]:
 def _load_employees(supabase: Client) -> list[dict[str, Any]]:
     """Загружает сотрудников с привязкой к локациям."""
     response = execute_supabase(
-        lambda: supabase.table("tms_employees")
-        .select("id, full_name, badge_number, location_id, tms_locations(id, name)")
+        lambda: supabase.table("employees")
+        .select("id, full_name, badge_number, location_id, locations(id, name)")
         .order("full_name")
         .execute()
     )
     return response.data or []
+
+
+def _normalize_requisition_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Приводит embed-поля заявки (dict/list) к плоским dict для Jinja2."""
+    normalized = dict(row)
+    normalized["warehouses"] = normalize_join(row.get("warehouses"))
+    normalized["cmms_work_order_links"] = normalize_join(row.get("cmms_work_order_links"))
+    lines: list[dict[str, Any]] = []
+    for line in row.get("requisition_lines") or []:
+        ln = dict(line)
+        ln["tools"] = normalize_join(line.get("tools"))
+        ln["tool_types"] = normalize_join(line.get("tool_types"))
+        lines.append(ln)
+    normalized["requisition_lines"] = lines
+    normalized["status"] = derive_requisition_status(lines, row.get("cancelled_at"))
+    return normalized
 
 
 def _load_requisitions(
@@ -211,31 +241,30 @@ def _load_requisitions(
     cmms: bool,
 ) -> list[dict[str, Any]]:
     """Загружает заявки (CMMS или внутренние) с учётом склада кладовщика."""
-    query = (
-        supabase.table(TABLE_REQUISITIONS)
-        .select(
-            "id, client_reference_id, warehouse_id, external_order_id, status, "
-            "created_at, technician_name, cancelled_at, cancel_reason, "
-            "tms_warehouses(name), "
-            "tms_requisition_lines("
-            "id, line_client_id, catalog_item_id, tool_id, status, condition_on_return, "
-            "tms_tools(id, inventory_number, serial_number, status), "
-            "tms_tool_types(model_name)"
-            ")"
-        )
-        .order("created_at", desc=True)
+    select_fields = (
+        "id, client_reference_id, warehouse_id, status, "
+        "created_at, cancelled_at, cancel_reason, "
+        "warehouses(name), "
+        "cmms_work_order_links(work_order_kind, cmms_work_order_number, technician_name, technician_badge, "
+        "cancelled_by, cancel_reason_text), "
+        "requisition_lines("
+        "id, line_client_id, catalog_item_id, tool_id, status, condition_on_return, "
+        "tools(id, inventory_number, serial_number, status), "
+        "tool_types(model_name)"
+        ")"
     )
+    query = supabase.table(TABLE_REQUISITIONS).select(select_fields).order("created_at", desc=True)
 
     if cmms:
-        query = query.not_.is_("external_order_id", "null")
+        query = query.not_.is_("cmms_work_order_links", "null")
     else:
-        query = query.is_("external_order_id", "null")
+        query = query.is_("cmms_work_order_links", "null")
 
     if user.role == UserRole.CLERK.value and user.warehouse_id:
         query = query.eq("warehouse_id", str(user.warehouse_id))
 
     response = execute_supabase(lambda: query.execute())
-    return response.data or []
+    return [_normalize_requisition_row(row) for row in (response.data or [])]
 
 
 @router.get("/login", response_class=HTMLResponse, response_model=None)
@@ -284,15 +313,21 @@ def inventory_page(
     status_filter: str | None = Query(default=None, alias="status"),
 ) -> HTMLResponse:
     """Страница инвентаря инструментов с фильтрами по складу и статусу."""
-    _require_roles(current_user, UserRole.ADMIN.value, UserRole.CLERK.value)
+    _require_roles(
+        current_user,
+        UserRole.ADMIN.value,
+        UserRole.CLERK.value,
+        UserRole.MASTER.value,
+    )
 
     query = (
         supabase.table(TABLE_TOOLS)
         .select(
             "id, type_id, inventory_number, serial_number, status, wear_count, "
             "last_check, warehouse_id, "
-            "tms_tool_types(id, model_name, tms_tool_categories(name)), "
-            "tms_warehouses(name)"
+            "tool_types(id, model_name, tool_categories(name)), "
+            "warehouses(name), "
+            "cmms_repair_links(cmms_request_id, cmms_request_number, handoff_mode, handoff_status)"
         )
         .order("inventory_number")
     )
@@ -311,8 +346,8 @@ def inventory_page(
     employees: list[dict[str, Any]] = []
     if current_user.role == UserRole.CLERK.value:
         employees_response = execute_supabase(
-            lambda: supabase.table("tms_employees")
-            .select("*, tms_locations(name)")
+            lambda: supabase.table("employees")
+            .select("*, locations(name)")
             .order("full_name")
             .execute()
         )
@@ -330,6 +365,84 @@ def inventory_page(
             selected_status=status_filter or "",
             read_only=current_user.role == UserRole.ADMIN.value,
             employees=employees,
+        ),
+    )
+
+
+@router.get("/inventory/{tool_id}/cmms-repair", response_class=HTMLResponse, response_model=None)
+def inventory_cmms_repair_page(
+    request: Request,
+    tool_id: UUID,
+    supabase: Annotated[Client, Depends(get_supabase_client)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> HTMLResponse:
+    """Детали заявки ТОиР и отчётов по инструменту (контур А, только чтение)."""
+    _require_roles(
+        current_user,
+        UserRole.ADMIN.value,
+        UserRole.CLERK.value,
+        UserRole.MASTER.value,
+    )
+
+    tool_resp = execute_supabase(
+        lambda: supabase.table(TABLE_TOOLS)
+        .select(
+            "id, inventory_number, serial_number, status, warehouse_id, "
+            "tool_types(model_name), warehouses(name), "
+            "cmms_repair_links(id, cmms_request_id, cmms_request_number, client_reference_id)"
+        )
+        .eq("id", str(tool_id))
+        .maybe_single()
+        .execute()
+    )
+    tool = tool_resp.data
+    if not tool:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Инструмент не найден")
+
+    if current_user.role == UserRole.CLERK.value and current_user.warehouse_id:
+        if str(tool.get("warehouse_id")) != str(current_user.warehouse_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав")
+
+    cmms_link_raw = tool.get("cmms_repair_links")
+    if cmms_link_raw is None:
+        cmms_link: dict[str, Any] | None = None
+    elif isinstance(cmms_link_raw, list):
+        cmms_link = cmms_link_raw[0] if cmms_link_raw else None
+    else:
+        cmms_link = cmms_link_raw
+
+    if not cmms_link or not cmms_link.get("cmms_request_id"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Для этого инструмента нет связи с заявкой ТОиР",
+        )
+
+    from app.core.config import get_settings
+    from app.integration.cmms_client import CmmsRepairClientError, create_cmms_repair_client
+
+    settings = get_settings()
+    client = create_cmms_repair_client(settings)
+    cmms_error: str | None = None
+    cmms_request: dict[str, Any] | None = None
+    work_reports: list[dict[str, Any]] = []
+
+    try:
+        cmms_request = client.get_inventory_request_by_inventory_id(tool_id)
+        work_reports = client.list_inventory_work_reports(tool_id)
+    except CmmsRepairClientError as exc:
+        cmms_error = exc.message
+
+    return templates.TemplateResponse(
+        request=request,
+        name="cmms_repair_detail.html",
+        context=_page_context(
+            current_user,
+            tool=tool,
+            cmms_link=cmms_link,
+            cmms_request=cmms_request,
+            work_reports=work_reports,
+            cmms_error=cmms_error,
+            integration_mode=(settings.cmms_integration_mode or "mock").lower(),
         ),
     )
 
@@ -352,14 +465,21 @@ def requisitions_page(
 
     tools_query = (
         supabase.table(TABLE_TOOLS)
-        .select("id, type_id, inventory_number, serial_number, warehouse_id, status, tms_tool_types(model_name)")
+        .select("id, type_id, inventory_number, serial_number, warehouse_id, status, tool_types(model_name)")
         .eq("status", "available")
         .order("inventory_number")
     )
     if warehouse_filter:
         tools_query = tools_query.eq("warehouse_id", warehouse_filter)
 
-    available_tools = execute_supabase(lambda: tools_query.execute()).data or []
+    available_tools_raw = execute_supabase(lambda: tools_query.execute()).data or []
+    available_tools = [
+        {
+            **tool,
+            "tool_types": normalize_join(tool.get("tool_types")),
+        }
+        for tool in available_tools_raw
+    ]
 
     return templates.TemplateResponse(
         request=request,
@@ -384,7 +504,7 @@ def analytics_page(
 
     scrapped_resp = execute_supabase(
         lambda: supabase.table(TABLE_TOOLS)
-        .select("id, inventory_number, serial_number, last_check, tms_tool_types(model_name)")
+        .select("id, inventory_number, serial_number, last_check, tool_types(model_name)")
         .eq("status", "scrapped")
         .order("last_check", desc=True)
         .limit(100)

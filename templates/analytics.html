@@ -52,7 +52,7 @@
     </thead>
     <tbody>
       {% for tool in scrapped_tools %}
-      {% set tt = tool.get("tms_tool_types") or {} %}
+      {% set tt = tool.get("tool_types") or {} %}
       <tr>
         <td>{{ tool.inventory_number or "—" }}</td>
         <td>{{ tool.serial_number or "—" }}</td>

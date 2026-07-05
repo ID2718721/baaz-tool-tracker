@@ -24,9 +24,9 @@
     </thead>
     <tbody>
       {% for u in users %}
-      {% set emp = u.get("tms_employees") or {} %}
-      {% set loc = emp.get("tms_locations") or {} %}
-      {% set wh = u.get("tms_warehouses") or {} %}
+      {% set emp = u.get("employees") or {} %}
+      {% set loc = emp.get("locations") or {} %}
+      {% set wh = u.get("warehouses") or {} %}
       {% set role_labels = {"admin": "Администратор", "master": "Мастер", "clerk": "Кладовщик"} %}
       <tr data-user='{{ {"id": u.id|string, "login": u.login, "role": u.role, "employee_id": (u.employee_id|string if u.employee_id else ""), "warehouse_id": (u.warehouse_id|string if u.warehouse_id else "")}|tojson }}'>
         <td>{{ u.login }}</td>

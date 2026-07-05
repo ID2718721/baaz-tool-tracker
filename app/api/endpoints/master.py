@@ -61,7 +61,7 @@ def create_location(
 ) -> dict[str, Any]:
     """Создание цеха/участка."""
     response = execute_supabase(
-        lambda: supabase.table("tms_locations")
+        lambda: supabase.table("locations")
         .insert({"name": payload.name})
         .select("*")
         .execute()
@@ -78,7 +78,7 @@ def update_location(
 ) -> dict[str, Any]:
     """Обновление названия цеха/участка."""
     response = execute_supabase(
-        lambda: supabase.table("tms_locations")
+        lambda: supabase.table("locations")
         .update({"name": payload.name})
         .eq("id", str(location_id))
         .select("*")
@@ -94,7 +94,7 @@ def delete_location(
     _: Annotated[CurrentUser, Depends(require_master_or_admin)],
 ) -> None:
     """Удаление цеха/участка."""
-    execute_supabase(lambda: supabase.table("tms_locations").delete().eq("id", str(location_id)).execute())
+    execute_supabase(lambda: supabase.table("locations").delete().eq("id", str(location_id)).execute())
 
 
 @router.post("/warehouses", status_code=status.HTTP_201_CREATED)
@@ -109,7 +109,7 @@ def create_warehouse(
         "location_id": str(payload.location_id),
     }
     response = execute_supabase(
-        lambda: supabase.table("tms_warehouses")
+        lambda: supabase.table("warehouses")
         .insert(insert_data)
         .select("*")
         .execute()
@@ -129,7 +129,7 @@ def update_warehouse(
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нет данных для обновления")
     response = execute_supabase(
-        lambda: supabase.table("tms_warehouses")
+        lambda: supabase.table("warehouses")
         .update(update_data)
         .eq("id", str(warehouse_id))
         .select("*")
@@ -145,7 +145,7 @@ def delete_warehouse(
     _: Annotated[CurrentUser, Depends(require_master_or_admin)],
 ) -> None:
     """Удаление склада."""
-    execute_supabase(lambda: supabase.table("tms_warehouses").delete().eq("id", str(warehouse_id)).execute())
+    execute_supabase(lambda: supabase.table("warehouses").delete().eq("id", str(warehouse_id)).execute())
 
 
 @router.post("/categories", status_code=status.HTTP_201_CREATED)
@@ -156,7 +156,7 @@ def create_category(
 ) -> dict[str, Any]:
     """Создание категории инструментов."""
     response = execute_supabase(
-        lambda: supabase.table("tms_tool_categories")
+        lambda: supabase.table("tool_categories")
         .insert({"name": payload.name})
         .select("*")
         .execute()
@@ -173,7 +173,7 @@ def update_category(
 ) -> dict[str, Any]:
     """Обновление категории инструментов."""
     response = execute_supabase(
-        lambda: supabase.table("tms_tool_categories")
+        lambda: supabase.table("tool_categories")
         .update({"name": payload.name})
         .eq("id", str(category_id))
         .select("*")
@@ -189,7 +189,7 @@ def delete_category(
     _: Annotated[CurrentUser, Depends(require_master_or_admin)],
 ) -> None:
     """Удаление категории инструментов."""
-    execute_supabase(lambda: supabase.table("tms_tool_categories").delete().eq("id", str(category_id)).execute())
+    execute_supabase(lambda: supabase.table("tool_categories").delete().eq("id", str(category_id)).execute())
 
 
 @router.post("/tool-types", status_code=status.HTTP_201_CREATED)
@@ -200,7 +200,7 @@ def create_tool_type(
 ) -> dict[str, Any]:
     """Создание типа инструмента."""
     response = execute_supabase(
-        lambda: supabase.table("tms_tool_types")
+        lambda: supabase.table("tool_types")
         .insert(payload.model_dump(mode="json"))
         .select("*")
         .execute()
@@ -220,7 +220,7 @@ def update_tool_type(
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нет данных для обновления")
     response = execute_supabase(
-        lambda: supabase.table("tms_tool_types")
+        lambda: supabase.table("tool_types")
         .update(update_data)
         .eq("id", str(tool_type_id))
         .select("*")
@@ -236,4 +236,4 @@ def delete_tool_type(
     _: Annotated[CurrentUser, Depends(require_master_or_admin)],
 ) -> None:
     """Удаление типа инструмента."""
-    execute_supabase(lambda: supabase.table("tms_tool_types").delete().eq("id", str(tool_type_id)).execute())
+    execute_supabase(lambda: supabase.table("tool_types").delete().eq("id", str(tool_type_id)).execute())

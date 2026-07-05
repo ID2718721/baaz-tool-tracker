@@ -1,7 +1,6 @@
 # Секреты и локальная конфигурация
-.env
-.env.local
-.env.*.local
+.env*
+!.env*.example
 
 # Python
 __pycache__/
@@ -73,3 +72,9 @@ desktop.ini
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Node
+node_modules/
+pnpm-lock.yaml
+
+_cookies.txt

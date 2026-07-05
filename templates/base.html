@@ -172,11 +172,12 @@
       border-radius: 3px;
       font-size: .72rem;
       font-weight: 600;
-      text-transform: uppercase;
     }
     .status-available, .status-returned { background: #d1e7dd; color: #0f5132; }
     .status-in_use, .status-issued { background: #fff3cd; color: #664d03; }
     .status-maintenance { background: #f8d7da; color: #842029; }
+    .status-pending_repair { background: #ffe5d0; color: #984c0c; }
+    .status-pending_return { background: #cfe2ff; color: #084298; }
     .status-scrapped, .status-cancelled { background: #e2e3e5; color: #41464b; }
     .status-new, .status-pending { background: #e2e3e5; color: #41464b; }
     .status-reserved, .status-ready_for_issue, .status-partially_reserved { background: #cff4fc; color: #055160; }
@@ -258,12 +259,33 @@
     }
     .modal-body { padding: 1.25rem; }
     .form-group { margin-bottom: 1rem; }
-    .form-group label {
+    .form-group label,
+    .form-group .form-label {
       display: block;
       font-size: .8rem;
       font-weight: 600;
       margin-bottom: .35rem;
       color: var(--baaz-dark);
+    }
+    .handoff-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+    }
+    .handoff-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+      font-size: .875rem;
+      font-weight: 400;
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+    .handoff-option input[type="radio"] {
+      width: auto;
+      margin-top: 0.15rem;
+      flex-shrink: 0;
     }
     .form-group input, .form-group select, .form-group textarea {
       width: 100%;

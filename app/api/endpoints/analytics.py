@@ -78,7 +78,7 @@ def _safe_status(value: str | None) -> ToolStatus:
 
 
 def _row_to_overdue_tool(row: dict[str, Any], tool_type: dict[str, Any], days_overdue: int) -> OverdueCalibrationTool:
-    category = _normalize_join(tool_type.get("tms_tool_categories"))
+    category = _normalize_join(tool_type.get("tool_categories"))
     return OverdueCalibrationTool(
         id=UUID(str(row["id"])),
         type_id=UUID(str(row["type_id"])),
@@ -105,8 +105,8 @@ def get_pensioners(
     birth_date_cutoff = date(today.year - PENSION_AGE_FEMALE, 12, 31)
 
     response = execute_supabase(
-        lambda: supabase.table("tms_employees")
-        .select("id, badge_number, full_name, birth_date, gender, location_id, tms_locations(id, name)")
+        lambda: supabase.table("employees")
+        .select("id, badge_number, full_name, birth_date, gender, location_id, locations(id, name)")
         .eq("gender", EmployeeGender.FEMALE.value)
         .not_.is_("birth_date", "null")
         .lte("birth_date", birth_date_cutoff.isoformat())
@@ -123,7 +123,7 @@ def get_pensioners(
         if age < PENSION_AGE_FEMALE:
             continue
 
-        location_data = _normalize_join(row.get("tms_locations"))
+        location_data = _normalize_join(row.get("locations"))
         location_id = UUID(str(row["location_id"])) if row.get("location_id") else NIL_UUID
         location_name = location_data.get("name") or "Без подразделения"
         key = str(location_id)
@@ -166,8 +166,8 @@ def get_tool_stats(
 ) -> ToolStatsResponse:
     """Распределение инструментов по категориям (количество и доля %)."""
     tools_response = execute_supabase(
-        lambda: supabase.table("tms_tools")
-        .select("id, tms_tool_types(category_id, tms_tool_categories(id, name))")
+        lambda: supabase.table("tools")
+        .select("id, tool_types(category_id, tool_categories(id, name))")
         .execute()
     )
     tools = tools_response.data or []
@@ -178,8 +178,8 @@ def get_tool_stats(
     category_counts: dict[str, dict[str, Any]] = defaultdict(lambda: {"count": 0, "name": "Без категории"})
 
     for tool in tools:
-        tool_type = _normalize_join(tool.get("tms_tool_types"))
-        category = _normalize_join(tool_type.get("tms_tool_categories"))
+        tool_type = _normalize_join(tool.get("tool_types"))
+        category = _normalize_join(tool_type.get("tool_categories"))
         category_id = str(category.get("id") or "unknown")
         category_name = category.get("name") or "Без категории"
         category_counts[category_id]["count"] += 1
@@ -208,8 +208,8 @@ def get_overdue_calibration(
     today = date.today()
 
     response = execute_supabase(
-        lambda: supabase.table("tms_tools")
-        .select("id, type_id, warehouse_id, inventory_number, serial_number, status, wear_count, last_check, tms_tool_types(model_name, tms_tool_categories(name))")
+        lambda: supabase.table("tools")
+        .select("id, type_id, warehouse_id, inventory_number, serial_number, status, wear_count, last_check, tool_types(model_name, tool_categories(name))")
         .neq("status", "scrapped")
         .not_.is_("last_check", "null")
         .order("last_check")
@@ -221,8 +221,8 @@ def get_overdue_calibration(
         if not row.get("type_id") or not row.get("warehouse_id"):
             continue
 
-        tool_type = _normalize_join(row.get("tms_tool_types"))
-        category_name = _normalize_join(tool_type.get("tms_tool_categories")).get("name")
+        tool_type = _normalize_join(row.get("tool_types"))
+        category_name = _normalize_join(tool_type.get("tool_categories")).get("name")
 
         if not _is_measuring_category(category_name):
             continue
@@ -244,8 +244,8 @@ def get_young_worn_tools(
 ) -> YoungWornToolsResponse:
     """Инструмент с износом >50 и сроком эксплуатации от 365 дней."""
     response = execute_supabase(
-        lambda: supabase.table("tms_tools")
-        .select("id, type_id, warehouse_id, inventory_number, serial_number, status, wear_count, last_check, tms_tool_types(model_name)")
+        lambda: supabase.table("tools")
+        .select("id, type_id, warehouse_id, inventory_number, serial_number, status, wear_count, last_check, tool_types(model_name)")
         .gt("wear_count", 50)
         .execute()
     )
@@ -261,7 +261,7 @@ def get_young_worn_tools(
         if last_check and age_days < 365:
             continue
 
-        tool_type = _normalize_join(row.get("tms_tool_types"))
+        tool_type = _normalize_join(row.get("tool_types"))
         tools.append(
             YoungWornTool(
                 id=UUID(str(row["id"])),

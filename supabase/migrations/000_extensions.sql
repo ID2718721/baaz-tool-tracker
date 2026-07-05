@@ -1,0 +1,2 @@
+-- Расширения PostgreSQL для АИС TMS.
+-- UUID: gen_random_uuid() (встроено в PostgreSQL 13+, Supabase Cloud).

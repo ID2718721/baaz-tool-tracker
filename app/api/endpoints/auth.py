@@ -17,7 +17,7 @@ from app.models.schemas import CurrentUser, LoginRequest, LoginResponse, UserRol
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-TABLE_USERS = "tms_users"
+TABLE_USERS = "users"
 
 
 def _set_auth_cookie(response: RedirectResponse | JSONResponse, token: str, settings: Settings) -> None:
@@ -43,7 +43,7 @@ def _clear_auth_cookie(response: RedirectResponse | JSONResponse, settings: Sett
 
 
 def _build_current_user(row: dict) -> CurrentUser:
-    employee = row.get("tms_employees") or {}
+    employee = row.get("employees") or {}
     return CurrentUser(
         id=UUID(str(row["id"])),
         login=row["login"],
@@ -59,10 +59,10 @@ def _authenticate_user(
     login: str,
     password: str,
 ) -> tuple[dict, CurrentUser]:
-    """Проверка учётной записи в tms_users по полям login и password_hash."""
+    """Проверка учётной записи в users по полям login и password_hash."""
     response = execute_supabase(
         lambda: supabase.table(TABLE_USERS)
-        .select("id, employee_id, warehouse_id, login, password_hash, role, created_at, tms_employees(full_name)")
+        .select("id, employee_id, warehouse_id, login, password_hash, role, created_at, employees(full_name)")
         .eq("login", login)
         .limit(1)
         .execute()

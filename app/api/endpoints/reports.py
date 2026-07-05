@@ -236,7 +236,7 @@ def _build_inventory_workbook(
 
 
 def _extract_writeoff_comment(tool: dict[str, Any]) -> str:
-    lines_raw = tool.get("tms_requisition_lines") or []
+    lines_raw = tool.get("requisition_lines") or []
     if isinstance(lines_raw, dict):
         lines_raw = [lines_raw]
     for line in reversed(lines_raw):
@@ -256,7 +256,7 @@ def _tool_writeoff_date(tool: dict[str, Any]) -> date | None:
 
 
 def _flatten_writeoff_tool(tool: dict[str, Any]) -> dict[str, str]:
-    tool_type = _normalize_join(tool.get("tms_tool_types"))
+    tool_type = _normalize_join(tool.get("tool_types"))
     last_check = tool.get("last_check")
 
     return {
@@ -372,8 +372,8 @@ def _build_writeoffs_workbook(
 
 def _fetch_warehouse(supabase: Client, warehouse_id: UUID) -> dict[str, Any]:
     response = execute_supabase(
-        lambda: supabase.table("tms_warehouses")
-        .select("id, name, tms_locations(name)")
+        lambda: supabase.table("warehouses")
+        .select("id, name, locations(name)")
         .eq("id", str(warehouse_id))
         .execute()
     )
@@ -381,8 +381,8 @@ def _fetch_warehouse(supabase: Client, warehouse_id: UUID) -> dict[str, Any]:
 
 
 def _flatten_inventory_tool(tool: dict[str, Any]) -> dict[str, str]:
-    tool_type = _normalize_join(tool.get("tms_tool_types"))
-    category = _normalize_join(tool_type.get("tms_tool_categories"))
+    tool_type = _normalize_join(tool.get("tool_types"))
+    category = _normalize_join(tool_type.get("tool_categories"))
     last_check_raw = tool.get("last_check")
     last_check = _cell(last_check_raw)[:10] if last_check_raw else ""
 
@@ -440,10 +440,10 @@ def export_inventory(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ к другому складу запрещён")
 
     tools_response = execute_supabase(
-        lambda: supabase.table("tms_tools")
+        lambda: supabase.table("tools")
         .select(
             "inventory_number, serial_number, status, wear_count, last_check, "
-            "tms_tool_types(model_name, tms_tool_categories(name))"
+            "tool_types(model_name, tool_categories(name))"
         )
         .eq("warehouse_id", warehouse_id_str)
         .order("inventory_number")
@@ -451,7 +451,7 @@ def export_inventory(
     )
 
     rows = [_flatten_inventory_tool(tool) for tool in tools_response.data or []]
-    location = _normalize_join(warehouse.get("tms_locations"))
+    location = _normalize_join(warehouse.get("locations"))
     warehouse_name = _cell(warehouse.get("name"))
 
     df = _rows_to_dataframe(rows, INVENTORY_COLUMNS)
@@ -485,11 +485,11 @@ def export_write_offs(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from не может быть позже date_to")
 
     response = execute_supabase(
-        lambda: supabase.table("tms_tools")
+        lambda: supabase.table("tools")
         .select(
             "inventory_number, serial_number, status, last_check, "
-            "tms_tool_types(model_name), "
-            "tms_requisition_lines(condition_on_return, status)"
+            "tool_types(model_name), "
+            "requisition_lines(condition_on_return, status)"
         )
         .eq("status", "scrapped")
         .order("last_check")
@@ -519,12 +519,12 @@ def export_write_offs(
 def _fetch_scrapped_tool(supabase: Client, tool_id: UUID) -> dict[str, Any]:
     """Загружает списанный инструмент с данными для акта."""
     response = execute_supabase(
-        lambda: supabase.table("tms_tools")
+        lambda: supabase.table("tools")
         .select(
             "id, inventory_number, serial_number, status, last_check, warehouse_id, "
-            "tms_tool_types(model_name), "
-            "tms_warehouses(name, tms_locations(name)), "
-            "tms_requisition_lines(condition_on_return, status)"
+            "tool_types(model_name), "
+            "warehouses(name, locations(name)), "
+            "requisition_lines(condition_on_return, status)"
         )
         .eq("id", str(tool_id))
         .limit(1)
@@ -540,9 +540,9 @@ def _fetch_scrapped_tool(supabase: Client, tool_id: UUID) -> dict[str, Any]:
 
 
 def _build_writeoff_docx(tool: dict[str, Any]) -> BytesIO:
-    tool_type = _normalize_join(tool.get("tms_tool_types"))
-    warehouse = _normalize_join(tool.get("tms_warehouses"))
-    location = _normalize_join(warehouse.get("tms_locations"))
+    tool_type = _normalize_join(tool.get("tool_types"))
+    warehouse = _normalize_join(tool.get("warehouses"))
+    location = _normalize_join(warehouse.get("locations"))
     reason = _extract_writeoff_comment(tool) or "—"
     writeoff_date = _cell(tool.get("last_check"))[:10] or date.today().isoformat()
     model_name = _cell(tool_type.get("model_name")) or "—"
