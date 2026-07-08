@@ -21,4 +21,8 @@ def derive_requisition_status(lines: list[dict[str, Any]], cancelled_at: Any = N
         return "ready_for_issue"
     if any(s == "reserved" for s in statuses):
         return "partially_reserved"
+    if any(s == "issued" for s in statuses):
+        return "issued"
+    if any(s == "returned" for s in statuses):
+        return "partially_returned"
     return "new"

@@ -61,6 +61,7 @@ class RequisitionStatus(StrEnum):
     PARTIALLY_RESERVED = "partially_reserved"
     READY_FOR_ISSUE = "ready_for_issue"
     ISSUED = "issued"
+    PARTIALLY_RETURNED = "partially_returned"
     RETURNED = "returned"
     CANCELLED = "cancelled"
 

@@ -36,11 +36,20 @@ class ICmmsRepairClient(Protocol):
 
     def list_inventory_work_reports(self, inventory_id: UUID) -> list[dict[str, Any]]: ...
 
+    def notify_tool_requisition_status(
+        self,
+        requisition_id: UUID,
+        status: str,
+        *,
+        previous_status: str | None = None,
+    ) -> dict[str, Any]: ...
+
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 REP_API_CREATE_REQUEST_FUNCTION = "integration-tms-create-request"
 REP_API_INVENTORY_RECEIVED_FUNCTION = "integration-tms-inventory-received"
+ISS_EVT_TOOL_REQUISITION_STATUS_FUNCTION = "integration-tms-tool-requisition-status"
 
 _CMMS_KNOWN_ERRORS: dict[str, str] = {
     "Function not found": (
@@ -235,6 +244,15 @@ class MockCmmsRepairClient:
             if str(row.get("inventory_id")) == inv
         ]
 
+    def notify_tool_requisition_status(
+        self,
+        requisition_id: UUID,
+        status: str,
+        *,
+        previous_status: str | None = None,
+    ) -> dict[str, Any]:
+        return {"ok": True, "mock": True, "requisition_id": str(requisition_id), "status": status}
+
 
 def _enum_value(value: StrEnum | str) -> str:
     return value if isinstance(value, str) else value.value
@@ -259,11 +277,20 @@ def _resolve_inventory_received_url(functions_url: str) -> str:
     return base + suffix
 
 
+def _resolve_tool_requisition_status_url(functions_url: str) -> str:
+    base = functions_url.strip().rstrip("/")
+    suffix = f"/{ISS_EVT_TOOL_REQUISITION_STATUS_FUNCTION}"
+    if base.endswith(suffix):
+        return base
+    return base + suffix
+
+
 class SupabaseCmmsRepairClient:
     def __init__(self, rest_url: str, functions_url: str, integration_secret: str, supabase_key: str) -> None:
         self._rest_url = rest_url.rstrip("/")
         self._url = _resolve_create_request_url(functions_url)
         self._inventory_received_url = _resolve_inventory_received_url(functions_url)
+        self._tool_requisition_status_url = _resolve_tool_requisition_status_url(functions_url)
         self._secret = integration_secret
         self._key = supabase_key
 
@@ -407,6 +434,49 @@ class SupabaseCmmsRepairClient:
         except httpx.RequestError as exc:
             raise _request_error_to_cmms_error(exc, context=context) from exc
         return rows if isinstance(rows, list) else []
+
+    def notify_tool_requisition_status(
+        self,
+        requisition_id: UUID,
+        status: str,
+        *,
+        previous_status: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "schema_version": 1,
+            "tms_requisition_id": str(requisition_id),
+            "status": status,
+        }
+        if previous_status:
+            body["previous_status"] = previous_status
+        body["occurred_at"] = datetime.now(tz=UTC).isoformat()
+        headers = {
+            "Authorization": f"Bearer {self._secret}",
+            "apikey": self._key,
+            "Content-Type": "application/json",
+        }
+        context = "Не удалось уведомить ТОиР о статусе заявки на инструменты"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(
+                    self._tool_requisition_status_url,
+                    json=body,
+                    headers=headers,
+                )
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    raise _http_error_to_cmms_error(exc, context=context) from exc
+                try:
+                    data = response.json()
+                except json.JSONDecodeError as exc:
+                    raise CmmsRepairClientError(
+                        f"{context}: ТОиР вернул не-JSON ответ",
+                        status_code=502,
+                    ) from exc
+        except httpx.RequestError as exc:
+            raise _request_error_to_cmms_error(exc, context=context) from exc
+        return data if isinstance(data, dict) else {"ok": True}
 
 
 def create_cmms_repair_client(settings) -> ICmmsRepairClient:

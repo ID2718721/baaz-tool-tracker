@@ -154,6 +154,7 @@ Auth (если `TMS_INTEGRATION_SECRET` задан): `Authorization: Bearer <sha
 |----|--------|-----|
 | REP-API-1 | POST | `{CMMS_FUNCTIONS_URL}/integration-tms-create-request` |
 | REP-API-2 | POST | `{CMMS_FUNCTIONS_URL}/integration-tms-inventory-received` |
+| ISS-EVT-1 | POST | `{CMMS_FUNCTIONS_URL}/integration-tms-tool-requisition-status` |
 | REP-API-3 | GET | `{CMMS}/rest/v1/v_inventory_requests?inventory_id=eq.{uuid}` + `Accept-Profile: integration` |
 | REP-API-4 | GET | `v_inventory_work_reports` |
 | REP-API-5 | GET | `{CMMS}/rest/v1/v_repair_departments?order=name.asc` + `Accept-Profile: integration` |
@@ -179,6 +180,24 @@ TMS API (кладовщик, свой склад):
 UI: `/inventory` → «Отправить в ТОиР» (`POST /api/v1/tools/{id}/send-to-cmms`, роли **`clerk`** и **`master`**); в модалке — **ремонтный отдел** + **способ передачи**. При наличии `cmms_repair_links` — «Заявка ТОиР» → `/inventory/{tool_id}/cmms-repair`.
 
 REP-EVT-1 (`in_progress`, `closed`, `rejected`, `cancelled`): см. таблицу передачи выше; до получения инструмента (`new`/`accepted`) → TMS `available`, после работ → `pending_return`.
+
+### ISS-EVT-1 (статус заявки на инструменты, контур Б)
+
+TMS → CMMS после reserve/issue/return/cancel кладовщиком (`app/api/endpoints/requisitions.py`):
+
+`POST {CMMS_FUNCTIONS_URL}/integration-tms-tool-requisition-status`
+
+```json
+{
+  "schema_version": 1,
+  "tms_requisition_id": "uuid",
+  "status": "partially_reserved",
+  "previous_status": "new",
+  "occurred_at": "2026-07-08T12:00:00Z"
+}
+```
+
+Auth: `Authorization: Bearer <CMMS_INTEGRATION_SECRET>`. Edge Function обновляет `public.tms_tool_requisition_links`; CMMS UI получает Realtime + toast при `partially_reserved` / `ready_for_issue`. Fallback: ISS-API-5 poll при открытии истории заявок.
 
 ### Устранение «Function not found» (404)
 
@@ -223,8 +242,9 @@ curl -X POST "http://127.0.0.1:54321/functions/v1/integration-tms-create-request
 1. `supabase db reset` в обоих проектах
 2. TMS: `uvicorn main:app --reload --port 8000`
 3. CMMS Mock: Tool Requisition без TMS
-4. CMMS Live + TMS: ISS-API-1 → clerk reserve/issue → ISS-API-5
-5. TMS pickup: send → `pending_repair` → CMMS accept → «Инструмент получен» → `in_progress`, TMS `maintenance`
-6. TMS deliver: send → «Передан в отдел» → CMMS `in_progress`
-7. Закрытие CMMS → TMS `pending_return` → «Принят на склад» → `available`
-8. Отмена до передачи (`new`/`accepted`) → TMS `available`
+4. CMMS Live + TMS: ISS-API-1 → clerk reserve → ISS-EVT-1 → CMMS toast без refresh
+5. Clerk issue → статус `issued` в истории CMMS
+6. TMS pickup: send → `pending_repair` → CMMS accept → «Инструмент получен» → `in_progress`, TMS `maintenance`
+7. TMS deliver: send → «Передан в отдел» → CMMS `in_progress`
+8. Закрытие CMMS → TMS `pending_return` → «Принят на склад» → `available`
+9. Отмена до выдачи (`new`…`ready_for_issue`) — из CMMS (ISS-API-2) или TMS clerk

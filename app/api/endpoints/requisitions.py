@@ -12,6 +12,7 @@ from app.api.deps import require_clerk_only
 from app.core.db_utils import execute_supabase, first_row
 from app.core.requisition_status import derive_requisition_status
 from app.core.supabase import get_supabase_client
+from app.integration.cmms_tool_requisition_notify import notify_cmms_tool_requisition_status
 from app.models.schemas import CurrentUser, TMSBaseModel, ToolStatus, UserRole
 
 router = APIRouter(prefix="/requisitions", tags=["requisitions"])
@@ -70,11 +71,12 @@ def _sync_requisition_status(supabase: Client, requisition_id: str) -> None:
     """Пересчитывает статус заявки по статусам строк."""
     req_resp = execute_supabase(
         lambda: supabase.table(TABLE_REQUISITIONS)
-        .select("cancelled_at")
+        .select("status, cancelled_at")
         .eq("id", requisition_id)
         .execute()
     )
     req_row = first_row(req_resp, detail="Заявка не найдена")
+    previous_status = req_row.get("status")
     if req_row.get("cancelled_at"):
         execute_supabase(
             lambda: supabase.table(TABLE_REQUISITIONS)
@@ -82,6 +84,13 @@ def _sync_requisition_status(supabase: Client, requisition_id: str) -> None:
             .eq("id", requisition_id)
             .execute()
         )
+        if previous_status != "cancelled":
+            notify_cmms_tool_requisition_status(
+                supabase,
+                requisition_id,
+                previous_status=previous_status,
+                status="cancelled",
+            )
         return
 
     lines_resp = execute_supabase(
@@ -95,12 +104,20 @@ def _sync_requisition_status(supabase: Client, requisition_id: str) -> None:
         return
 
     new_status = derive_requisition_status(lines, req_row.get("cancelled_at"))
+    if new_status == previous_status:
+        return
 
     execute_supabase(
         lambda: supabase.table(TABLE_REQUISITIONS)
         .update({"status": new_status})
         .eq("id", requisition_id)
         .execute()
+    )
+    notify_cmms_tool_requisition_status(
+        supabase,
+        requisition_id,
+        previous_status=previous_status,
+        status=new_status,
     )
 
 
@@ -185,6 +202,7 @@ def issue_requisition(
             detail="Выдача возможна только когда все строки зарезервированы",
         )
 
+    previous_status = requisition.get("status")
     for line in lines:
         line_id = str(line["id"])
         tool_id = str(line["tool_id"])
@@ -206,6 +224,12 @@ def issue_requisition(
         .update({"status": "issued"})
         .eq("id", str(requisition_id))
         .execute()
+    )
+    notify_cmms_tool_requisition_status(
+        supabase,
+        str(requisition_id),
+        previous_status=previous_status,
+        status="issued",
     )
 
     return {"ok": True, "detail": "Комплект выдан"}
@@ -300,6 +324,7 @@ def cancel_requisition(
     if any(line.get("status") in ("issued", "returned") for line in lines):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя отменить выданную заявку")
 
+    previous_status = requisition.get("status")
     now_iso = datetime.now(timezone.utc).isoformat()
     execute_supabase(
         lambda: supabase.table(TABLE_REQUISITIONS)
@@ -324,5 +349,11 @@ def cancel_requisition(
         )
         .eq("requisition_id", str(requisition_id))
         .execute()
+    )
+    notify_cmms_tool_requisition_status(
+        supabase,
+        str(requisition_id),
+        previous_status=previous_status,
+        status="cancelled",
     )
     return {"ok": True, "detail": "Заявка отменена"}
