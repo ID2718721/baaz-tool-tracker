@@ -2,6 +2,44 @@
 
 {% block title %}Аналитика — BAAZ TMS{% endblock %}
 
+{% block extra_css %}
+<style>
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 -0.75rem;
+  }
+  .col-md-6 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    padding: 0 0.75rem;
+    margin-bottom: 1rem;
+  }
+  @media (min-width: 768px) {
+    .col-md-6 {
+      flex: 0 0 50%;
+      max-width: 50%;
+      margin-bottom: 0;
+    }
+  }
+  .chart-block h2 {
+    font-size: 1rem;
+    color: var(--baaz-dark);
+    margin-bottom: 0.75rem;
+  }
+  .chart-wrap {
+    position: relative;
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .chart-wrap canvas {
+    max-height: 260px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <h1>Аналитика</h1>
@@ -79,6 +117,27 @@
   <div id="pensioners-content" style="display:none;"></div>
 </div>
 
+<div class="card" style="margin-bottom:1.25rem;padding:1rem;">
+  <div class="row">
+    <div class="col-md-6 chart-block">
+      <h2>Распределение инструментов по категориям</h2>
+      <div class="chart-wrap">
+        <canvas id="category-chart" style="display:none;"></canvas>
+        <div id="category-chart-empty" class="empty-state" style="display:none;">Нет данных для визуализации</div>
+        <div id="category-chart-loading" class="loading">Загрузка…</div>
+      </div>
+    </div>
+    <div class="col-md-6 chart-block">
+      <h2>Состояние инструментального фонда</h2>
+      <div class="chart-wrap">
+        <canvas id="status-chart" style="display:none;"></canvas>
+        <div id="status-chart-empty" class="empty-state" style="display:none;">Нет данных для визуализации</div>
+        <div id="status-chart-loading" class="loading">Загрузка…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="card" style="margin-bottom:1.25rem;">
   <div style="padding:1rem 1rem 0;">
     <h2 style="font-size:1rem;color:var(--baaz-dark);margin-bottom:.5rem;">Статистика по категориям инструмента</h2>
@@ -117,6 +176,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const fetchOpts = { credentials: "include" };
 
@@ -125,6 +185,27 @@ const STATUS_LABELS = {
   in_use: "В работе",
   maintenance: "На обслуживании",
   scrapped: "Списан",
+  pending_repair: "Ожидает ремонта",
+  pending_return: "Ожидает приёмки на склад",
+};
+
+const STATUS_CHART_ORDER = ["available", "in_use", "maintenance", "scrapped", "pending_repair"];
+
+const CHART_COLORS = ["#212529", "#343a40", "#495057", "#6c757d", "#adb5bd", "#ced4da", "#dee2e6"];
+
+const CHART_FONT = { family: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif' };
+
+let categoryChart = null;
+let statusChart = null;
+
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: true,
+  plugins: {
+    legend: {
+      labels: { color: "#212529", font: CHART_FONT },
+    },
+  },
 };
 
 function fmtDate(value) {
@@ -211,12 +292,119 @@ async function loadPensioners() {
   }
 }
 
+function hideChartLoading(loadingEl) {
+  if (loadingEl) loadingEl.style.display = "none";
+}
+
+function renderCategoryChart(categories) {
+  const canvas = document.getElementById("category-chart");
+  const empty = document.getElementById("category-chart-empty");
+  const rows = (categories || []).filter(c => Number(c.tool_count) > 0);
+
+  if (categoryChart) {
+    categoryChart.destroy();
+    categoryChart = null;
+  }
+
+  if (!rows.length) {
+    canvas.style.display = "none";
+    empty.style.display = "block";
+    return;
+  }
+
+  canvas.style.display = "block";
+  empty.style.display = "none";
+  categoryChart = new Chart(canvas, {
+    type: "pie",
+    data: {
+      labels: rows.map(c => c.category_name || "—"),
+      datasets: [{
+        data: rows.map(c => c.tool_count),
+        backgroundColor: CHART_COLORS.slice(0, rows.length),
+        borderColor: "#fff",
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      ...chartDefaults,
+      plugins: {
+        ...chartDefaults.plugins,
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const pct = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const share = pct ? Math.round((ctx.raw / pct) * 1000) / 10 : 0;
+              return ` ${ctx.label}: ${ctx.raw} (${share}%)`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderStatusChart(statusItems) {
+  const canvas = document.getElementById("status-chart");
+  const empty = document.getElementById("status-chart-empty");
+  const byStatus = Object.fromEntries((statusItems || []).map(s => [s.status, s.tool_count ?? 0]));
+  const rows = STATUS_CHART_ORDER
+    .map(status => ({ status, count: byStatus[status] ?? 0, label: STATUS_LABELS[status] || status }))
+    .filter(row => row.count > 0);
+
+  if (statusChart) {
+    statusChart.destroy();
+    statusChart = null;
+  }
+
+  if (!rows.length) {
+    canvas.style.display = "none";
+    empty.style.display = "block";
+    return;
+  }
+
+  canvas.style.display = "block";
+  empty.style.display = "none";
+  statusChart = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{
+        label: "Количество",
+        data: rows.map(r => r.count),
+        backgroundColor: CHART_COLORS.slice(0, rows.length),
+        borderColor: "#212529",
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      ...chartDefaults,
+      scales: {
+        x: {
+          ticks: { color: "#495057", font: CHART_FONT },
+          grid: { color: "#dee2e6" },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: "#495057", font: CHART_FONT, precision: 0 },
+          grid: { color: "#dee2e6" },
+        },
+      },
+      plugins: {
+        ...chartDefaults.plugins,
+        legend: { display: false },
+      },
+    },
+  });
+}
+
 async function loadStats() {
   const loading = document.getElementById("stats-loading");
+  const chartLoading = document.getElementById("category-chart-loading");
   const table = document.getElementById("stats-table");
   loading.style.display = "block";
   loading.textContent = "Загрузка…";
   table.style.display = "none";
+  if (chartLoading) chartLoading.style.display = "block";
   try {
     const data = await fetchJson("/api/v1/analytics/tool-stats");
     document.getElementById("stats-meta").textContent = `Всего в инвентаре: ${data.total_tools ?? 0}.`;
@@ -226,10 +414,30 @@ async function loadStats() {
         <td>${c.tool_count ?? 0}</td>
         <td>${c.percentage ?? 0}%</td>
       </tr>`).join("") || '<tr><td colspan="3" class="empty-state">Нет данных</td></tr>';
+    renderCategoryChart(data.categories);
+    hideChartLoading(chartLoading);
     loading.style.display = "none";
     table.style.display = "table";
   } catch (err) {
+    hideChartLoading(chartLoading);
+    document.getElementById("category-chart-empty").style.display = "block";
     showLoadError(loading, `Ошибка загрузки: ${err.message}`);
+  }
+}
+
+async function loadStatusStats() {
+  const chartLoading = document.getElementById("status-chart-loading");
+  const empty = document.getElementById("status-chart-empty");
+  empty.textContent = "Нет данных для визуализации";
+  if (chartLoading) chartLoading.style.display = "block";
+  try {
+    const data = await fetchJson("/api/v1/analytics/status-stats");
+    renderStatusChart(data.statuses);
+    hideChartLoading(chartLoading);
+  } catch (err) {
+    hideChartLoading(chartLoading);
+    document.getElementById("status-chart-empty").textContent = `Ошибка загрузки: ${err.message}`;
+    document.getElementById("status-chart-empty").style.display = "block";
   }
 }
 
@@ -267,7 +475,7 @@ async function loadOverdue() {
 }
 
 async function loadAll() {
-  await Promise.all([loadPensioners(), loadStats(), loadOverdue()]);
+  await Promise.all([loadPensioners(), loadStats(), loadStatusStats(), loadOverdue()]);
 }
 
 document.getElementById("btn-refresh").addEventListener("click", loadAll);

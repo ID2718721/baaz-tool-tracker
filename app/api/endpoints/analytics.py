@@ -23,8 +23,10 @@ from app.models.schemas import (
     PensionersByDepartment,
     PensionersResponse,
     ToolCategoryStat,
+    StatusStatsResponse,
     ToolStatsResponse,
     ToolStatus,
+    ToolStatusStat,
     YoungWornTool,
     YoungWornToolsResponse,
 )
@@ -197,6 +199,28 @@ def get_tool_stats(
     categories.sort(key=lambda item: item.percentage, reverse=True)
 
     return ToolStatsResponse(total_tools=total, categories=categories)
+
+
+@router.get("/status-stats", response_model=StatusStatsResponse)
+def get_status_stats(
+    supabase: Annotated[Client, Depends(get_supabase_client)],
+    _: Annotated[CurrentUser, Depends(require_master_or_admin)],
+) -> StatusStatsResponse:
+    """Количество инструментов в разрезе каждого статуса."""
+    response = execute_supabase(
+        lambda: supabase.table("tools").select("status").execute()
+    )
+    tools = response.data or []
+    counts: dict[str, int] = defaultdict(int)
+    for row in tools:
+        status = _safe_status(row.get("status"))
+        counts[status.value] += 1
+
+    statuses = [
+        ToolStatusStat(status=status, tool_count=counts.get(status.value, 0))
+        for status in ToolStatus
+    ]
+    return StatusStatsResponse(total_tools=len(tools), statuses=statuses)
 
 
 @router.get("/overdue-calibration", response_model=OverdueCalibrationResponse)

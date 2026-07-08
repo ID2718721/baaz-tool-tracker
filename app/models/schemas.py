@@ -769,6 +769,16 @@ class ToolStatsResponse(TMSBaseModel):
     categories: list[ToolCategoryStat]
 
 
+class ToolStatusStat(TMSBaseModel):
+    status: ToolStatus
+    tool_count: int = Field(ge=0)
+
+
+class StatusStatsResponse(TMSBaseModel):
+    total_tools: int
+    statuses: list[ToolStatusStat]
+
+
 class OverdueCalibrationTool(ToolRead):
     type_name: str | None = None
     category_name: str | None = None
